@@ -1,0 +1,72 @@
+:root {
+  --navy-950: #061a33;
+  --navy-900: #082442;
+  --navy-800: #0c3158;
+  --ink-900: #15243a;
+  --ink-700: #40536c;
+  --ink-500: #6b7b8f;
+  --ink-400: #8d99a8;
+  --page: #f3f6f9;
+  --surface: #ffffff;
+  --surface-soft: #f8fafc;
+  --border: #d9e1ea;
+  --border-soft: #e9eef3;
+  --green: #167a58;
+  --green-bg: #eaf5f0;
+  --green-line: #c9e1d6;
+  --amber: #a96a00;
+  --amber-bg: #fff7e7;
+  --amber-line: #ecd49f;
+  --red: #b34a41;
+  --red-bg: #fcf0ef;
+  --red-line: #ebcbc7;
+  --blue: #23689e;
+  --blue-bg: #eaf3fa;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 2px 8px rgba(16, 39, 65, .05);
+  --shadow-md: 0 14px 36px rgba(7, 30, 57, .12);
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--page); }
+body {
+  margin: 0;
+  color: var(--ink-900);
+  background: var(--page);
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+svg { display: block; }
+
+.mono-label {
+  color: var(--ink-400);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+
+.risk-low {
+  --accent: var(--green);
+  --tint: var(--green-bg);
+  --line: var(--green-line);
+  --chip: #f1f8f5;
+}
+.risk-medium {
+  --accent: var(--amber);
+  --tint: var(--amber-bg);
+  --line: var(--amber-line);
+  --chip: #fffaf0;
+}
+.risk-high {
+  --accent: var(--red);
+  --tint: var(--red-bg);
+  --line: var(--red-line);
+  --chip: #fff7f6;
+}
