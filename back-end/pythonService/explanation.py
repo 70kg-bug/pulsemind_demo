@@ -68,6 +68,15 @@ def generator():
     return _generator
 
 
+def generator_loaded() -> bool:
+    """Has the 7B been loaded? Read-only -- never triggers the load.
+
+    Scoring-ready and explanation-ready are two different states, and `/readyz`
+    reports them separately.
+    """
+    return _generator is not None
+
+
 def generate_explanation(record: dict, use_llm: bool = True) -> dict:
     """Explain one assessment, or say plainly why it cannot be explained.
 

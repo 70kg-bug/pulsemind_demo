@@ -6,7 +6,45 @@ const { scoring, explaining } = require('../config/modelService');
 // data -> model service -> db -> front-end. Reads never touch the model
 // service: everything the dashboard shows comes out of MongoDB.
 
+
+const req_id = (res) => res.getHeader('X-Request-Id');
+
+/**
+ * Map an axios failure onto an honest status.
+ *
+ * Everything used to become 502 "the model service did not respond", including a
+ * Pydantic 422 about a malformed body -- so an operator would go restart a
+ * service that had answered promptly and correctly. `err.response` present means
+ * it answered; absent means it did not.
+ */
+const fromUpstream = (res, err, what) => {
+  if (err.response) {
+    const status = err.response.status;
+    return res.status(status === 503 ? 503 : (status >= 400 && status < 500 ? status : 502))
+      .type('application/problem+json')
+      .set(err.response.headers?.['retry-after']
+        ? { 'Retry-After': err.response.headers['retry-after'] } : {})
+      .json({
+        type: 'about:blank',
+        title: status === 503 ? 'Service Unavailable' : 'Upstream Rejected The Request',
+        status: status === 503 ? 503 : (status >= 400 && status < 500 ? status : 502),
+        detail: err.response.data?.detail ?? err.response.data?.title ?? what,
+        instance: req_id(res),
+      });
+  }
+  // No response at all: down, refused, or timed out. This is the only genuine 502.
+  return res.status(502).type('application/problem+json').json({
+    type: 'about:blank', title: 'Bad Gateway', status: 502,
+    detail: `${what} did not respond`, instance: req_id(res),
+  });
+};
+
 const DEFAULT_SEED = Number(process.env.WARD_SEED || 20260817);
+
+// `seedWard` deletes all three collections. Until authentication exists, one
+// unauthenticated request can empty the history of record, so it is off unless
+// deliberately switched on. checks/README.md warns humans; this stops requests.
+const ALLOW_DESTRUCTIVE = process.env.PM_ALLOW_DESTRUCTIVE === 'true';
 const BACKFILL_TICKS = 24;      // hourly, so the shipped dwell parameters hold
 const HISTORY_LIMIT = 14;       // what the observation strip plots
 
@@ -48,6 +86,14 @@ const persist = async (assessment) => {
 /** Build the ward and backfill 24 hours of scored history.
  *  Destructive by design: seeding twice gives the same ward, not two. */
 const seedWard = async (req, res) => {
+  if (!ALLOW_DESTRUCTIVE) {
+    return res.status(403).type('application/problem+json').json({
+      type: 'about:blank', title: 'Forbidden', status: 403,
+      detail: 'seeding deletes every assessment, prompt and stay state; '
+            + 'set PM_ALLOW_DESTRUCTIVE=true to permit it',
+      instance: req_id(res),
+    });
+  }
   const seed = Number(req.body?.seed ?? DEFAULT_SEED);
   const ticks = Number(req.body?.backfill_ticks ?? BACKFILL_TICKS);
 
@@ -56,10 +102,7 @@ const seedWard = async (req, res) => {
     const { data } = await scoring.post('/ward/seed', { seed, backfill_ticks: ticks });
     ward = data;
   } catch (err) {
-    return res.status(502).json({
-      message: 'the model service did not respond',
-      detail: err.message
-    });
+    return fromUpstream(res, err, 'the model service');
   }
 
   // BEFORE the delete: a 200 that is malformed would otherwise empty all three
@@ -127,10 +170,7 @@ const tickWard = async (req, res) => {
     const { data } = await scoring.post('/ward/tick', { seed: states[0].seed, beds });
     stepped = data;
   } catch (err) {
-    return res.status(502).json({
-      message: 'the model service did not respond',
-      detail: err.message
-    });
+    return fromUpstream(res, err, 'the model service');
   }
 
   for (const step of stepped.patients) {
@@ -252,10 +292,7 @@ const explainPatient = async (req, res) => {
     });
     result = data;
   } catch (err) {
-    return res.status(502).json({
-      message: 'the explanation generator did not respond',
-      detail: err.message
-    });
+    return fromUpstream(res, err, 'the explanation generator');
   }
 
   await Assessment.updateOne(
@@ -283,11 +320,24 @@ const getPatientContext = async (req, res) => {
 
 /** Record a clinician's disposition of a prompt. */
 const reviewPrompt = async (req, res) => {
-  const { disposition, note, clinician } = req.body || {};
+  const { disposition, note } = req.body || {};
   const allowed = ['acknowledged', 'actioned', 'dismissed', 'escalated'];
   if (!allowed.includes(disposition)) {
     return res.status(400).json({ message: `disposition must be one of ${allowed.join(', ')}` });
   }
+
+  // ATTRIBUTION COMES FROM AN AUTHENTICATED PRINCIPAL, OR IT IS DECLARED ABSENT.
+  //
+  // This used to read `clinician: clinician || 'ICU Clinician'` -- a free-text
+  // body field with a default, on an unauthenticated route. It is the only
+  // human-authored record in the system, and a defaulted name is not a weaker
+  // audit record: it is a false one, and a reviewer will believe it.
+  //
+  // `req.user` is set by verifyJWT, which is deliberately unmounted, so today
+  // there is no principal. We record that fact rather than inventing a name or
+  // refusing the disposition -- `attributed: false` is true, and the screen says
+  // so. The body is never consulted; a caller cannot assert who they are.
+  const actor = req.user ?? null;
 
   const prompt = await Prompt.findByIdAndUpdate(
     req.params.promptId,
@@ -297,7 +347,8 @@ const reviewPrompt = async (req, res) => {
         disposition,
         note: note || null,
         reviewed_at: new Date(),
-        clinician: clinician || 'ICU Clinician'
+        clinician: actor,
+        attributed: actor !== null
       }
     },
     { new: true }

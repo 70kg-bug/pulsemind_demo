@@ -15,13 +15,21 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+import explanation as expl
 
 import contract
 import model_runtime as rt
 import synthetic_ward as sw
 from pipeline import config as C
+
+# Provenance captured at startup, when the model thread is idle by construction,
+# so the probes can answer without queueing behind the workload they monitor.
+_READY: dict = {}
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -32,6 +40,7 @@ async def lifespan(_app: FastAPI):
     """
     runtime = rt.runtime()
     sw.check_levels(runtime.assets)
+    _READY.update(runtime.provenance)
     yield
     # Nothing to tear down -- see model_runtime.
 
@@ -40,31 +49,64 @@ app = FastAPI(title="PulseMind model service", version=C.RISK_SCHEMA_VERSION,
               lifespan=lifespan)
 
 
+@app.exception_handler(rt.Overloaded)
+async def _overloaded(request: Request, exc: rt.Overloaded) -> JSONResponse:
+    """503, not 429.
+
+    429 (RFC 6585 section 4) means this caller has spent their quota. A full
+    model queue is reduced capacity and the caller did nothing wrong, which is
+    503 with a Retry-After the client can actually honour.
+    """
+    return JSONResponse(
+        status_code=503,
+        media_type="application/problem+json",
+        headers={"Retry-After": str(exc.retry_after)},
+        content={"type": "about:blank",
+                 "title": "Service Unavailable",
+                 "status": 503,
+                 "detail": "the model thread is saturated; retry shortly",
+                 "queue_depth": exc.depth},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Wire shapes
 # ---------------------------------------------------------------------------
+# EVERY FIELD THAT MULTIPLIES WORK IS BOUNDED. `backfill_ticks` is the sharp one:
+# each tick is one model-thread round-trip per bed, so an unbounded int let an
+# unauthenticated caller ask for millions of them and freeze the board with no
+# way to see why. `extra="forbid"` because silently accepting and discarding an
+# unknown field is how a caller comes to believe it did something.
+_STRICT = ConfigDict(extra="forbid")
+
+
 class SeedRequest(BaseModel):
+    model_config = _STRICT
     seed: int = 20260817
-    backfill_ticks: int = 24
+    # 48 = the widest history the observation strip can plot.
+    backfill_ticks: int = Field(24, ge=1, le=48)
 
 
 class BedState(BaseModel):
     """What Node holds for one bed between calls, read back out of Mongo."""
 
-    patient_id: str
-    tick: int
+    model_config = _STRICT
+    patient_id: str = Field(..., max_length=64)
+    tick: int = Field(..., ge=0, le=100_000)
     stay_state: dict
     last_band: str | None = None
-    offline_devices: list[str] = Field(default_factory=list)
+    offline_devices: list[str] = Field(default_factory=list, max_length=16)
 
 
 class TickRequest(BaseModel):
+    model_config = _STRICT
     seed: int = 20260817
-    beds: list[BedState]
+    beds: list[BedState] = Field(..., max_length=64)
 
 
 class ExplainRequest(BaseModel):
-    patient_id: str
+    model_config = _STRICT
+    patient_id: str = Field(..., max_length=64)
     # The stored record for the reading being explained, exactly as it was
     # scored. Not a tick to re-score -- see `_score_tick`.
     record: dict
@@ -149,12 +191,43 @@ def _parameters_still_arriving(bed: sw.Bed, offline: set[str]) -> set[str]:
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/healthz")
-def healthz() -> dict:
-    runtime = rt.runtime()
-    return {"status": "ok", **runtime.provenance,
-            "sufficiency_floor": {
-                "max_imputed_share": C.SUFFICIENCY_MAX_IMPUTED_SHARE,
-                "max_documentation_share": C.SUFFICIENCY_MAX_DOC_SHARE}}
+async def healthz() -> dict:
+    """LIVENESS. Answers from module state and never touches the model thread.
+
+    It used to call `rt.runtime()`, which enqueues -- so the probe blocked for the
+    length of whatever was running, and a supervisor would restart the service
+    precisely while it was working. `async def` so it does not consume one of
+    anyio's threadpool tokens either.
+    """
+    return {"status": "pass", "service": "pulsemind-model",
+            "schema_version": C.RISK_SCHEMA_VERSION}
+
+
+@app.get("/readyz")
+async def readyz() -> JSONResponse:
+    """READINESS: can this service do useful work right now?
+
+    Scoring-ready and explanation-ready are genuinely different states -- the 7B
+    loads on first use and the service scores without it -- so a missing explainer
+    is `warn` and still 2xx.
+    """
+    depth = rt.queue_depth()
+    checks = {
+        "model:loaded": {"status": "pass" if _READY else "fail"},
+        "model_thread:alive": {"status": "pass" if rt.thread_alive() else "fail"},
+        "queue:depth": {"status": "warn" if depth >= rt.MAX_QUEUE_DEPTH else "pass",
+                        "observedValue": depth,
+                        "observedUnit": "requests"},
+        "explainer:loaded": {"status": "pass" if expl.generator_loaded() else "warn"},
+    }
+    failed = any(c["status"] == "fail" for c in checks.values())
+    return JSONResponse(
+        status_code=503 if failed else 200,
+        content={"status": "fail" if failed else
+                 ("warn" if any(c["status"] == "warn" for c in checks.values()) else "pass"),
+                 "checks": checks,
+                 "provenance": _READY},
+    )
 
 
 @app.post("/ward/seed")

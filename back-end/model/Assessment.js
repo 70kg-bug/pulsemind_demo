@@ -94,6 +94,9 @@ const assessmentSchema = new Schema({
   model_version: String,
   band_table_version: String,
   scoring_device: String,
+  // The record's own contract version. Declared, because Mongoose strict mode
+  // drops undeclared keys -- the same trap as `parameter` above.
+  schema_version: String,
 
   // The record this was mapped from, so the explanation is generated against
   // the exact reading scored. `select: false` keeps it out of browser queries.

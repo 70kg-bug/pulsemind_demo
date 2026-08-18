@@ -122,7 +122,14 @@ export interface ClinicianReview {
   disposition: Disposition
   note: string | null
   reviewed_at: string
-  clinician: string
+  /**
+   * The authenticated principal, or null when there is none. Never supplied by
+   * the caller — a disposition that names whoever asked for it is not an audit
+   * record. `attributed` disambiguates "nobody was identified" from "the field
+   * was not populated", which a blank name cannot.
+   */
+  clinician: string | null
+  attributed: boolean
 }
 
 export type DeviceState = 'streaming' | 'available' | 'intermittent' | 'offline'
@@ -168,6 +175,8 @@ export interface ScoredAssessment extends AssessmentBase {
   prompt: RiskPrompt | null
   review: ClinicianReview | null
   /** Provenance, so a stored assessment traces to what produced it. */
+  /** The version of this very shape, so a stored row can be read years later. */
+  schema_version?: string
   model_version?: string
   band_table_version?: string
   scoring_device?: string

@@ -192,7 +192,11 @@ def assessment(record: dict, *, patient_id: str, bed_code: str, unit: str,
             "citations": citations or [],
             "prompt": prompt,
             "review": review,
-            # So a stored assessment traces to what produced it.
+            # So a stored assessment traces to what produced it. The schema
+            # version travels too: it was stamped on every record already but
+            # never reached the wire, so a client was parsing a shape whose
+            # version it could not read.
+            "schema_version": record["schema_version"],
             "model_version": record["provenance"]["model"],
             "band_table_version": record["provenance"]["band_table_version"],
             "scoring_device": record["provenance"]["scoring_device"]}

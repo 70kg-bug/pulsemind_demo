@@ -4,7 +4,7 @@ const app = express();
 const path = require('path');
 const cors = require('cors');
 const corsOptions = require('./config/corsOptions');
-const { logger } = require('./middleware/logEvents');
+const { requestContext } = require('./middleware/requestContext');
 const errorHandler = require('./middleware/errorHandler');
 // const verifyJWT = require('./middleware/verifyJWT');
 const cookieParser = require('cookie-parser');
@@ -17,8 +17,10 @@ mongoose.set('strictQuery', false);
 // Connect to MongoDB
 connectDB();
 
-// custom middleware logger
-app.use(logger);
+// One id per request, carried to the model service and back, and a JSON access
+// log that records the matched ROUTE rather than the URL -- our URLs contain
+// patient identifiers and this is the only place they would reach disk.
+app.use(requestContext);
 
 // Handle options credentials check - before CORS!
 // and fetch cookies credentials requirement

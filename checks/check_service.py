@@ -48,6 +48,10 @@ print(f"       device={health.get('scoring_device')} "
 
 print("\nseed")
 status, seeded = call(NODE, "POST", "/ward/seed", {})
+if status == 403:
+    raise SystemExit(
+        "\nThis check re-seeds the ward, and seeding is guarded.\n"
+        "Restart Node with PM_ALLOW_DESTRUCTIVE=true, then run it again.")
 show("POST /api/ward/seed", 200, status, str(seeded)[:110])
 
 print("\ntick")

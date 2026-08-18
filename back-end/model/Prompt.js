@@ -31,7 +31,11 @@ const promptSchema = new Schema({
     // A short tracking note. Clinical documentation stays in the EHR.
     note: { type: String, default: null },
     reviewed_at: Date,
-    clinician: String
+    // Null until authentication exists. `attributed` says so explicitly, because
+    // a reader seeing a blank name cannot tell "nobody was identified" from
+    // "the field was not populated". Never taken from the request body.
+    clinician: { type: String, default: null },
+    attributed: { type: Boolean, default: false }
   }
 }, { timestamps: true });
 

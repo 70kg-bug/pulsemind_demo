@@ -134,7 +134,10 @@ export function PatientDetail() {
             </span>
             <span className="text-2xs text-ink-700">
               Prompt closed as <span className="font-medium">{review.disposition}</span> at{' '}
-              {formatClock(new Date(review.reviewed_at))} by {review.clinician}.
+              {formatClock(new Date(review.reviewed_at))}
+              {review.attributed
+                ? ` by ${review.clinician}.`
+                : ' — not attributed to a named clinician, because this build has no authentication.'}
             </span>
           </Panel>
         )}

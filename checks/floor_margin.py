@@ -16,8 +16,16 @@ def call(method, path, body=None):
     request = urllib.request.Request(
         NODE + path, data=data, method=method,
         headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=400) as response:
-        return json.loads(response.read() or b"null")
+    try:
+        with urllib.request.urlopen(request, timeout=400) as response:
+            return json.loads(response.read() or b"null")
+    except urllib.error.HTTPError as failure:
+        if failure.code == 403:
+            raise SystemExit(
+                "\nThis check re-seeds the ward, and seeding is guarded.\n"
+                "Restart Node with PM_ALLOW_DESTRUCTIVE=true, then run it again."
+            ) from None
+        raise
 
 
 call("POST", "/ward/seed", {})

@@ -64,8 +64,26 @@ class Runtime:
 # DAEMON, not a ThreadPoolExecutor: `executor.shutdown(wait=True)` dies 0xC0000409
 # too, so the model is deliberately never released. Only exit ends this process.
 # ---------------------------------------------------------------------------
-_WORK: "queue.Queue[tuple]" = queue.Queue()
+# Depth is in REQUESTS, not jobs: `_on_model_thread` blocks on the future, and
+# `/ward/seed` loops its 192 scorings sequentially, so one request is never more
+# than one item. Eight is a few seconds of scoring, or one explanation plus a
+# short line behind it.
+MAX_QUEUE_DEPTH = 8
+
+_WORK: "queue.Queue[tuple]" = queue.Queue(maxsize=MAX_QUEUE_DEPTH)
 _runtime: Runtime | None = None
+
+
+class Overloaded(Exception):
+    """The model thread is saturated. A refusal, not a failure.
+
+    One GPU and one thread mean load cannot be spread, only shed. Accepting work
+    we cannot start is how a queue becomes an outage nobody can see.
+    """
+
+    def __init__(self, depth: int, retry_after: int = 25) -> None:
+        super().__init__(f"model thread saturated, {depth} queued")
+        self.depth, self.retry_after = depth, retry_after
 
 
 def _worker() -> None:
@@ -82,17 +100,36 @@ _MODEL_THREAD = threading.Thread(target=_worker, name="pulsemind-model", daemon=
 _MODEL_THREAD.start()
 
 
-# Long enough for a 7B to load and generate on a cold cache, short enough that
-# a wedged model thread answers 500 instead of holding a request forever. Every
-# other call through here takes tens of milliseconds.
-MODEL_TIMEOUT_S = 600.0
+# THE OWNER OF THE GPU GIVES UP FIRST. Each of these must stay below the Node
+# timeout for the same path (config/modelService.js: 120 s score, 300 s explain).
+# It used to be one 600 s value above both, so Node abandoned a call while this
+# thread kept the GPU for another five minutes and the next request queued behind
+# a computation nobody would read.
+#
+# Two values, not one: 90 s would be correct for scoring and wrong for the 7B,
+# which is ~40 s of cold load plus 13-42 s of generation, and ~75 s to generate
+# on a nearly full card.
+SCORE_TIMEOUT_S = 90.0
+EXPLAIN_TIMEOUT_S = 240.0
 
 
-def _on_model_thread(fn, *args):
+def _on_model_thread(fn, *args, timeout: float = SCORE_TIMEOUT_S):
     """Run fn on the one thread that is allowed to touch the model."""
     future: Future = Future()
-    _WORK.put((fn, args, future))
-    return future.result(timeout=MODEL_TIMEOUT_S)
+    try:
+        _WORK.put((fn, args, future), block=False)
+    except queue.Full:
+        raise Overloaded(_WORK.qsize()) from None
+    return future.result(timeout=timeout)
+
+
+def queue_depth() -> int:
+    """Items waiting for the model thread. Read-only -- never enqueues."""
+    return _WORK.qsize()
+
+
+def thread_alive() -> bool:
+    return _MODEL_THREAD.is_alive()
 
 
 def on_model_thread(fn, *args):
@@ -101,7 +138,7 @@ def on_model_thread(fn, *args):
     The 7B comes through here too -- two CUDA contexts on two threads segfault
     the interpreter (exit 139) mid-load. Generating blocks scoring for 18-23 s.
     """
-    return _on_model_thread(fn, *args)
+    return _on_model_thread(fn, *args, timeout=EXPLAIN_TIMEOUT_S)
 
 
 def _load() -> Runtime:
