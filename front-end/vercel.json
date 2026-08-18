@@ -5,7 +5,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!assets/).*)",
+      "_comment": "/api is excluded so a static deploy 404s instead of answering index.html. A rewritten API call returns HTML, the client's .json() throws on '<', and the board reads as broken rather than as backendless. There is no backend on Vercel: the model service and Mongo run locally.",
+      "source": "/((?!assets/|api/).*)",
       "destination": "/index.html"
     }
   ],

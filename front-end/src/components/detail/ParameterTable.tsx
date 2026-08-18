@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import { ChevronRight } from 'lucide-react'
-import type { ParameterReading, RiskContributor } from '../../types/clinical'
+import type { ParameterName, ParameterReading, RiskContributor } from '@contract/clinical'
 import { PARAMETER_GROUPS, parameterDefinition } from '../../data/parameters'
 import { cn } from '../../lib/cn'
 import { ProvenanceTag } from '../ui/ProvenanceTag'
@@ -12,14 +12,23 @@ interface ParameterTableProps {
   contributors: RiskContributor[]
 }
 
-/** A parameter is a score factor when it appears among the ranked contributors. */
-function scoreFactorNames(contributors: RiskContributor[]): Set<string> {
-  return new Set(contributors.map((contributor) => contributor.feature_name.toLowerCase()))
+/**
+ * A parameter is a score factor when one of the ranked contributors derives
+ * from it. Matched on the machine name: `feature_name` is a display label, and
+ * comparing it to a parameter's prose description marked every row "not among
+ * the ranked drivers" -- including the rank-1 driver.
+ */
+function scoreFactorParameters(contributors: RiskContributor[]): Set<ParameterName> {
+  return new Set(
+    contributors
+      .map((contributor) => contributor.parameter)
+      .filter((name): name is ParameterName => name !== null),
+  )
 }
 
 export function ParameterTable({ patientId, parameters, contributors }: ParameterTableProps) {
-  const factors = scoreFactorNames(contributors)
-  const defaultedCount = parameters.filter((p) => p.source === 'cohort_default').length
+  const factors = scoreFactorParameters(contributors)
+  const defaultedCount = parameters.filter((p) => p.source === 'population_reference').length
 
   return (
     <div>
@@ -67,7 +76,7 @@ export function ParameterTable({ patientId, parameters, contributors }: Paramete
 
             {rows.map((reading) => {
               const definition = parameterDefinition(reading.parameter_name)
-              const isFactor = factors.has(definition.description.toLowerCase())
+              const isFactor = factors.has(reading.parameter_name)
 
               return (
                 <Link

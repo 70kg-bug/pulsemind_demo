@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
-import type { Disposition } from '../types/clinical'
-import { isScored } from '../types/clinical'
-import { getScoreHistory } from '../data/feed'
-import { useAssessment } from '../data/WardProvider'
+import type { Disposition } from '@contract/clinical'
+import { isScored } from '@contract/clinical'
+import { reviewPrompt, toObservations } from '../data/feed'
+import { useAssessment, useWard } from '../data/WardProvider'
 import { bandMeaning } from '../data/bands'
 import { useClock } from '../hooks/useClock'
+import { usePatientHistory } from '../hooks/useApi'
 import {
   BAND_STATE_LABEL,
   BAND_STATE_MEANING,
@@ -30,9 +31,12 @@ export function PatientDetail() {
   const now = useClock()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [disposition, setDisposition] = useState<Disposition | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
+  const { refresh } = useWard()
   const assessment = useAssessment(patientId)
+  const { data: history } = usePatientHistory(patientId)
 
   if (!assessment) {
     return (
@@ -46,7 +50,29 @@ export function PatientDetail() {
   }
 
   const scored = isScored(assessment) ? assessment : null
-  const promptIsOpen = scored?.prompt?.status === 'open' && disposition === null
+  const promptIsOpen = scored?.prompt?.status === 'open'
+  const review = scored?.review ?? null
+
+  // The disposition is persisted, not held in component state. It is the only
+  // human-authored record in the system, and the screen previously said "Review
+  // recorded" having sent nothing at all.
+  const recordDisposition = async (disposition: Disposition) => {
+    const promptId = scored?.prompt?._id
+    if (!promptId) {
+      setReviewError('this prompt has no id -- re-seed the ward')
+      return
+    }
+    setRecording(true)
+    setReviewError(null)
+    try {
+      await reviewPrompt(promptId, disposition)
+      await refresh()
+    } catch (failure) {
+      setReviewError(failure instanceof Error ? failure.message : 'the review was not recorded')
+    } finally {
+      setRecording(false)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
@@ -86,26 +112,28 @@ export function PatientDetail() {
             driverName={scored.contributors[0]?.feature_name ?? 'No ranked driver'}
             driverShare={scored.contributors[0]?.share_of_decision ?? 0}
             now={now}
-            onDispose={setDisposition}
+            busy={recording}
+            onDispose={(disposition) => void recordDisposition(disposition)}
           />
         )}
 
-        {disposition && (
+        {reviewError && (
+          <Panel className="px-4 py-2.5">
+            <span className="text-2xs text-ink-700">
+              The review was not recorded: {reviewError}
+            </span>
+          </Panel>
+        )}
+
+        {review && (
           <Panel className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5">
             <span className="text-xs font-semibold uppercase tracking-[0.09em] text-verified">
               Review recorded
             </span>
             <span className="text-2xs text-ink-700">
-              Prompt closed as <span className="font-medium">{disposition}</span> at{' '}
-              {formatClock(now)} by ICU Clinician.
+              Prompt closed as <span className="font-medium">{review.disposition}</span> at{' '}
+              {formatClock(new Date(review.reviewed_at))} by {review.clinician}.
             </span>
-            <button
-              type="button"
-              onClick={() => setDisposition(null)}
-              className="ml-auto text-2xs text-ink-500 underline underline-offset-2 hover:text-accent"
-            >
-              Reopen prompt
-            </button>
           </Panel>
         )}
 
@@ -129,9 +157,9 @@ export function PatientDetail() {
         {scored && (
           <>
             <Panel className="p-4">
-              <SectionHeading trailing="last 6 hours">Assessment history</SectionHeading>
+              <SectionHeading trailing={`last ${history?.length ?? 0} readings`}>Assessment history</SectionHeading>
               <div className="mt-4">
-                <ObservationStrip observations={getScoreHistory(scored, now)} />
+                <ObservationStrip observations={toObservations(history ?? [])} />
               </div>
             </Panel>
 
@@ -209,7 +237,10 @@ export function PatientDetail() {
               <Panel className="min-w-0 flex-[1.6] p-4">
                 <SectionHeading>Plain-language explanation</SectionHeading>
                 <div className="mt-3">
-                  <ExplanationPanel explanation={scored.explanation} />
+                  <ExplanationPanel
+                    explanation={scored.explanation}
+                    patientId={scored.patient_id}
+                  />
                 </div>
               </Panel>
 

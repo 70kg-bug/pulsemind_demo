@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { RiskBand } from '../../types/clinical'
-import type { ScoreObservation } from '../../data/history'
+import type { RiskBand } from '@contract/clinical'
+import type { ScoreObservation } from '../../data/feed'
 import { BAND_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatClock, formatScore } from '../../lib/format'

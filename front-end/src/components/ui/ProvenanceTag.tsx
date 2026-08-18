@@ -1,4 +1,4 @@
-import type { InputSource } from '../../types/clinical'
+import type { InputSource } from '@contract/clinical'
 import { PROVENANCE_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatAge } from '../../lib/format'
@@ -34,7 +34,7 @@ export function ProvenanceTag({ source, ageMinutes, className }: ProvenanceTagPr
         {glyph && <span aria-hidden="true">{glyph} </span>}
         {label}
       </span>
-      {source !== 'cohort_default' && ageMinutes !== null && (
+      {source !== 'population_reference' && ageMinutes !== null && (
         <span className="font-mono text-ink-500">{formatAge(ageMinutes)}</span>
       )}
     </span>

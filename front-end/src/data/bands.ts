@@ -9,7 +9,7 @@
  * would discard that and bring back the band flicker the machine exists to remove.
  */
 
-import type { RiskBand } from '../types/clinical'
+import type { RiskBand } from '@contract/clinical'
 
 /** Rate of the outcome across the whole cohort, for comparison against each band. */
 export const COHORT_BASE_RATE = 0.0833

@@ -1,4 +1,4 @@
-import type { RiskBand } from '../../types/clinical'
+import type { RiskBand } from '@contract/clinical'
 import { BAND_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { SegmentMeter } from './SegmentMeter'

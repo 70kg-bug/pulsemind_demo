@@ -10,7 +10,7 @@
  * travels with every value in this UI rather than sitting behind a tooltip.
  */
 
-import type { ParameterName } from '../types/clinical'
+import type { ParameterName } from '@contract/clinical'
 
 export type ParameterGroup =
   | 'Oxygenation'

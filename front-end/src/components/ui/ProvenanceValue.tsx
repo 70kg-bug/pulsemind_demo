@@ -1,4 +1,4 @@
-import type { InputSource } from '../../types/clinical'
+import type { InputSource } from '@contract/clinical'
 import { PROVENANCE_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatValue } from '../../lib/format'
@@ -63,7 +63,7 @@ export function ProvenanceValue({
       )}
       {/* Spoken form, so a screen reader never hears a bare number. */}
       <span className="sr-only">
-        {source === 'cohort_default'
+        {source === 'population_reference'
           ? `approximately ${formatted}, population default, not measured on this patient`
           : `${formatted}, ${label.toLowerCase()}`}
       </span>

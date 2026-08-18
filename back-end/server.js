@@ -49,6 +49,10 @@ app.use('/', express.static(path.join(__dirname, '/public')));
 // app.use(verifyJWT);
 app.use('/patient', require('./routes/api/patient'));
 
+// The dashboard reads everything through here. Scoring happens in the model
+// service; this layer stores what it returns and serves the history back.
+app.use('/api', require('./routes/api/assessment'));
+
 app.all('*', (req, res) => {
     res.status(404);
     if (req.accepts('html')) {
@@ -61,6 +65,12 @@ app.all('*', (req, res) => {
 });
 
 app.use(errorHandler);
+
+// Backstop. Node exits the process on an unhandled rejection, so one bad
+// request in an unwrapped handler takes every bed off the board.
+process.on('unhandledRejection', (reason) => {
+    console.error('unhandled rejection:', reason);
+});
 
 mongoose.connection.once('open', () => {
     console.log('Connected to MongoDB');

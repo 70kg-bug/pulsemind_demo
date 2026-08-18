@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import { ArrowRight } from 'lucide-react'
-import type { ScoredAssessment } from '../../types/clinical'
+import type { ScoredAssessment } from '@contract/clinical'
 import { BAND_STATE_LABEL } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatAge, formatPercent, formatScore, minutesSince } from '../../lib/format'

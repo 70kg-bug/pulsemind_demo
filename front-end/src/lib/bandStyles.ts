@@ -8,7 +8,7 @@
  * strings — a template like `bg-band-${band}-tint` produces no CSS.
  */
 
-import type { BandState, InputSource, RiskBand } from '../types/clinical'
+import type { BandState, InputSource, RiskBand } from '@contract/clinical'
 
 export interface BandStyle {
   /** Pale fill for a cell. Always paired with `text-ink-950`. */
@@ -93,7 +93,7 @@ export const PROVENANCE_STYLES: Record<InputSource, ProvenanceStyle> = {
     edge: 'border-rule',
     meaning: 'The last measured value, shown again. Not remeasured.',
   },
-  cohort_default: {
+  population_reference: {
     label: 'Cohort default',
     glyph: '≈',
     ink: 'text-prov-default',

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router'
 import { WardProvider } from './data/WardProvider'
 import { AppHeader } from './components/chrome/AppHeader'
+import { ErrorBoundary } from './components/chrome/ErrorBoundary'
 import { SafetyFooter } from './components/chrome/SafetyFooter'
 import { PatientOverviewBoard } from './screens/PatientOverviewBoard'
 import { PatientDetail } from './screens/PatientDetail'
@@ -12,15 +13,17 @@ export default function App() {
     <div className="flex min-h-screen flex-col bg-page">
       <AppHeader />
       <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<PatientOverviewBoard />} />
-          <Route path="/patient/:patientId" element={<PatientDetail />} />
-          <Route
-            path="/patient/:patientId/parameter/:parameterName"
-            element={<ParameterDetail />}
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<PatientOverviewBoard />} />
+            <Route path="/patient/:patientId" element={<PatientDetail />} />
+            <Route
+              path="/patient/:patientId/parameter/:parameterName"
+              element={<ParameterDetail />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
       <SafetyFooter />
     </div>

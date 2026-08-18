@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import { ArrowRight } from 'lucide-react'
-import type { RefusedAssessment } from '../../types/clinical'
+import type { RefusedAssessment } from '@contract/clinical'
 import { INSUFFICIENCY_REASON_LABEL } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatAge, formatPercent, minutesSince } from '../../lib/format'

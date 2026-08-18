@@ -1,0 +1,19 @@
+# The model service. Install into the workspace venv, from this directory:
+#
+#   pip install -r requirements.txt
+#
+# `pulsemind-bki` is the model repo, installed from a local checkout because it
+# is not published. Adjust the path if bki/ does not sit beside pulsemind_demo/.
+# The `llm` extra is what the explanation writer needs; drop it and the service
+# still scores and bands, falling back to the deterministic template.
+#
+# Torch is NOT pinned here. The Blackwell sm_120 GPU needs the cu128 build,
+# which comes from PyTorch's own index and not from PyPI:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+-e ../../../bki[llm]
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7

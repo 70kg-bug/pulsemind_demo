@@ -1,4 +1,5 @@
-import type { Disposition, RiskPrompt } from '../../types/clinical'
+import type { Disposition, RiskPrompt } from '@contract/clinical'
+import { cn } from '../../lib/cn'
 import { formatAge, formatPercent, minutesSince } from '../../lib/format'
 
 interface PromptBannerProps {
@@ -6,6 +7,7 @@ interface PromptBannerProps {
   driverName: string
   driverShare: number
   now: Date
+  busy?: boolean
   onDispose: (disposition: Disposition) => void
 }
 
@@ -33,6 +35,7 @@ export function PromptBanner({
   driverName,
   driverShare,
   now,
+  busy = false,
   onDispose,
 }: PromptBannerProps) {
   return (
@@ -73,12 +76,14 @@ export function PromptBanner({
             <button
               key={action.key}
               type="button"
+              disabled={busy}
               onClick={() => onDispose(action.key)}
-              className={
+              className={cn(
                 index === 0
                   ? 'rounded-[2px] bg-ink-950 px-4 py-2 text-2xs font-medium text-surface transition-colors hover:bg-accent'
-                  : 'rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-2xs text-ink-950 transition-colors hover:border-ink-950'
-              }
+                  : 'rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-2xs text-ink-950 transition-colors hover:border-ink-950',
+                busy && 'cursor-wait opacity-50',
+              )}
             >
               {action.label}
             </button>

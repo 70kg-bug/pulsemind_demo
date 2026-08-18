@@ -1,4 +1,4 @@
-import type { InputSource, ParameterHistoryPoint } from '../../types/clinical'
+import type { InputSource, ParameterHistoryPoint } from '@contract/clinical'
 import type { ParameterDefinition } from '../../data/parameters'
 import { formatClock } from '../../lib/format'
 
@@ -11,7 +11,7 @@ interface ProvenanceTraceProps {
 const STROKE: Record<InputSource, string> = {
   measured: 'var(--prov-measured)',
   carried_forward: 'var(--prov-carried)',
-  cohort_default: 'var(--prov-default)',
+  population_reference: 'var(--prov-default)',
 }
 
 /**
@@ -129,7 +129,7 @@ export function ProvenanceTrace({ history, definition }: ProvenanceTraceProps) {
           <span className="text-xs text-ink-500">Carried forward</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-[2px] w-4" style={{ background: STROKE.cohort_default }} />
+          <span className="h-[2px] w-4" style={{ background: STROKE.population_reference }} />
           <span className="text-xs text-ink-500">Population default</span>
         </span>
         <span className="min-w-0 flex-1 text-right text-xs text-ink-400">

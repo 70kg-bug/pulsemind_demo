@@ -1,7 +1,7 @@
 {
   "name": "15tut",
   "version": "1.0.0",
-  "description": "MongoDB tutorial",
+  "description": "PulseMind demo API -- stores what the model service produces, serves it to the dashboard",
   "main": "server.js",
   "scripts": {
     "start": "node server",
@@ -10,9 +10,10 @@
   "author": "Dave Gray",
   "license": "ISC",
   "engines": {
-    "node": "14.x"
+    "node": ">=18"
   },
   "dependencies": {
+    "axios": "^1.7.7",
     "bcrypt": "^5.0.1",
     "cookie-parser": "^1.4.5",
     "cors": "^2.8.5",

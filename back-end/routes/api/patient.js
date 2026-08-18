@@ -14,5 +14,6 @@ router.route('/reading/:patient_id')
     .get(patientController.getPatientReading)
 
 router.route('/reading/:patient_id')
-    .post(patientController.createNewPatient)
+    // Matches the corrected export name; Express throws on an undefined handler.
+    .post(patientController.create100NewPatient)
 module.exports = router;

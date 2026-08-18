@@ -1,0 +1,17 @@
+# Python bytecode from the model service
+__pycache__/
+*.pyc
+
+# Secrets. back-end/.gitignore also covers this; belt and braces, because this
+# repository is public and the connection string it holds is live.
+.env
+.env.local
+
+# Build output
+dist/
+node_modules/
+
+# No CSV is ever committed here. MIMIC-IV is credentialed under a PhysioNet DUA
+# and this repository is public; `pythonService/routes/data_service.py` reads a
+# `data.csv` that must stay local.
+*.csv

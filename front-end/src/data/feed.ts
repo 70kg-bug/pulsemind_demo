@@ -1,8 +1,14 @@
 /**
  * The single boundary between the screens and wherever patient data comes from.
  *
- * Today it reads the simulated ward in `mockFeed.ts`. When a real transport is agreed,
- * only this file changes — no component imports `mockFeed` directly.
+ * `WardProvider` does the fetching; the selectors below stay synchronous over
+ * data already in memory, which is what let the transport change without
+ * touching a component.
+ *
+ * Two things this file deliberately does NOT do. It never derives a band from a
+ * score — `risk_level` is the published band after hysteresis, and comparing the
+ * score against a cut brings back the flicker the band table removes. And it
+ * never fabricates history: both history functions read stored assessments.
  */
 
 import type {
@@ -11,30 +17,111 @@ import type {
   ParameterName,
   PatientContext,
   RefusedAssessment,
+  RiskBand,
   ScoredAssessment,
-} from '../types/clinical'
-import { isScored } from '../types/clinical'
+} from '@contract/clinical'
+import { isScored } from '@contract/clinical'
 import { bandRank } from './bands'
-import { parametersFromSource } from './deviceSources'
-import { parameterHistory, scoreHistory, type ScoreObservation } from './history'
-import { PATIENT_CONTEXT, WARD } from './mockFeed'
 
-export function getWard(): Assessment[] {
-  return WARD
+/** Relative, because Vite proxies /api to the Node service in development. */
+const API = '/api'
+
+async function readJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API}${path}`)
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}`)
+  }
+  return response.json() as Promise<T>
 }
 
-export function getAssessment(patientId: string): Assessment | undefined {
-  return WARD.find((assessment) => assessment.patient_id === patientId)
+async function sendJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}`)
+  }
+  return response.json() as Promise<T>
 }
 
-export function getPatientContext(patientId: string): PatientContext | undefined {
-  return PATIENT_CONTEXT[patientId]
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+/** Every bed's current assessment. */
+export function fetchWard(): Promise<Assessment[]> {
+  return readJson<Assessment[]>('/ward')
 }
 
-/**
- * Patients that produced a score, ordered for triage: an open prompt first, then by
- * published band, then by score. The published band is used as given — never re-derived.
- */
+/** One patient's recent assessments, oldest first. `Assessment[]`, not
+ *  `ScoredAssessment[]`: a stay that dipped below the floor has refusals in its
+ *  history and the endpoint returns them. Consumers narrow first. */
+export function fetchHistory(patientId: string, limit = 14): Promise<Assessment[]> {
+  return readJson<Assessment[]>(`/patient/${patientId}/history?limit=${limit}`)
+}
+
+/** One parameter's charting history, oldest first. */
+export function fetchParameterHistory(
+  patientId: string,
+  parameterName: ParameterName,
+  limit = 24,
+): Promise<ParameterHistoryPoint[]> {
+  return readJson<ParameterHistoryPoint[]>(
+    `/patient/${patientId}/parameter/${parameterName}?limit=${limit}`,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+/** Advance every bed by one reading. */
+export function tickWard(): Promise<{ at: string }> {
+  return sendJson('/ward/tick', {})
+}
+
+/** Switch an input source off, or back on. */
+export function setDeviceOffline(
+  patientId: string,
+  deviceId: string,
+  offline: boolean,
+): Promise<{ offline_devices: string[] }> {
+  return sendJson(`/patient/${patientId}/device`, { device_id: deviceId, offline })
+}
+
+/** Ask the local model to write the explanation. Takes tens of seconds. */
+export function generateExplanation(patientId: string): Promise<{
+  status: string
+  explanation_text: string
+  grounding_status: string
+}> {
+  return sendJson(`/patient/${patientId}/explain`, {})
+}
+
+/** Record a clinician's disposition of a prompt. */
+export function reviewPrompt(
+  promptId: string,
+  disposition: string,
+  note?: string,
+): Promise<unknown> {
+  return sendJson(`/prompt/${promptId}/review`, { disposition, note })
+}
+
+// ---------------------------------------------------------------------------
+// Selectors — synchronous, over data already held by WardProvider
+// ---------------------------------------------------------------------------
+
+export function getAssessment(
+  ward: Assessment[],
+  patientId: string,
+): Assessment | undefined {
+  return ward.find((assessment) => assessment.patient_id === patientId)
+}
+
+/** Scored patients, ordered for triage: open prompt, then published band, then
+ *  score. The band is used as given — never re-derived. */
 export function rankedPatients(ward: Assessment[]): ScoredAssessment[] {
   return ward
     .filter(isScored)
@@ -52,118 +139,14 @@ export function rankedPatients(ward: Assessment[]): ScoredAssessment[] {
     })
 }
 
-/**
- * Patients whose latest reading fell below the data-sufficiency floor. They are listed
- * separately and never ranked, so a refusal cannot be read as a low score.
- */
+/** Patients below the data-sufficiency floor. Listed separately and never
+ *  ranked, so a refusal cannot be read as a low score. */
 export function dataLimitedPatients(ward: Assessment[]): RefusedAssessment[] {
   return ward.filter((assessment): assessment is RefusedAssessment => !isScored(assessment))
 }
 
 export function hasOpenPrompt(assessment: Assessment): boolean {
   return isScored(assessment) && assessment.prompt?.status === 'open'
-}
-
-/** Recent assessments for one patient, as independent observations. */
-export function getScoreHistory(assessment: ScoredAssessment, now: Date): ScoreObservation[] {
-  return scoreHistory(assessment.patient_id, assessment.risk_score, now)
-}
-
-/** Charting history for one parameter, carrying provenance per point. */
-export function getParameterHistory(
-  assessment: Assessment,
-  parameterName: ParameterName,
-  now: Date,
-): ParameterHistoryPoint[] {
-  const reading = assessment.parameters.find(
-    (parameter) => parameter.parameter_name === parameterName,
-  )
-  return parameterHistory(
-    assessment.patient_id,
-    parameterName,
-    reading?.value ?? null,
-    reading?.source ?? 'cohort_default',
-    now,
-  )
-}
-
-/**
- * How much of a reading each parameter a lost source carries is assumed to be worth.
- *
- * Calibrated so the ventilator — which supplies eight of the eleven parameters — takes
- * every patient below the floor on its own, while the bedside monitor degrades the
- * shares without silencing the board. That is the honest outcome: a ventilation risk
- * model without the ventilator feed genuinely has nothing left to score.
- */
-const SHARE_PER_LOST_PARAMETER = 0.04
-
-/**
- * Recompute the ward with some input sources switched off.
- *
- * Pure, so the provider holds the set of offline device IDs and nothing else. The
- * consequences follow the real contract: a lost source means its parameters stop being
- * measured and are carried forward instead, and enough carried-forward inputs pushes the
- * reading below the data-sufficiency floor, at which point no score may be published.
- *
- * ⚠️ Two parts of this are simulation, not schema. The device-to-parameter mapping in
- * `deviceSources.ts` is a prototype assumption, and the `imputed_share` delta applied
- * here is a stand-in for a model-side quantity the frontend cannot compute. Both are
- * labelled in the UI.
- */
-export function applyOfflineDevices(ward: Assessment[], offline: Set<string>): Assessment[] {
-  if (offline.size === 0) {
-    return ward
-  }
-
-  return ward.map((assessment) => {
-    const lostSources = assessment.devices.filter((device) => offline.has(device.device_id))
-    if (lostSources.length === 0) {
-      return assessment
-    }
-
-    const lostParameters = new Set(
-      lostSources.flatMap((device) => parametersFromSource(device.label)),
-    )
-
-    const devices = assessment.devices.map((device) =>
-      offline.has(device.device_id) ? { ...device, state: 'offline' as const } : device,
-    )
-
-    // A lost source does not erase its last value — it stops refreshing it.
-    const parameters = assessment.parameters.map((reading) =>
-      lostParameters.has(reading.parameter_name) && reading.source === 'measured'
-        ? { ...reading, source: 'carried_forward' as const, age_minutes: reading.age_minutes ?? 0 }
-        : reading,
-    )
-
-    // The delta is over every parameter the lost source supplies, not only the ones
-    // that happened to be freshly measured — the model loses the whole feed, not just
-    // this instant's values.
-    const imputedShare = Math.min(
-      0.95,
-      assessment.imputed_share + lostParameters.size * SHARE_PER_LOST_PARAMETER,
-    )
-
-    // Below the floor, nothing may be published — not a low score, nothing.
-    if (isScored(assessment) && imputedShare > SUFFICIENCY_FLOOR) {
-      const refused: RefusedAssessment = {
-        patient_id: assessment.patient_id,
-        bed_code: assessment.bed_code,
-        unit: assessment.unit,
-        assessed_at: assessment.assessed_at,
-        assessment_status: 'insufficient_data',
-        insufficiency_reason: 'imputed_share_above_floor',
-        readings_since_admission: assessment.readings_in_state,
-        imputed_share: imputedShare,
-        documentation_share: assessment.documentation_share,
-        parameters,
-        devices,
-      }
-      return refused
-    }
-
-    return { ...assessment, parameters, devices, imputed_share: imputedShare }
-  })
 }
 
 /** Above this share of defaulted inputs, no score is published. */
@@ -181,4 +164,27 @@ export function matchesQuery(assessment: Assessment, query: string): boolean {
   )
 }
 
-export type { ScoreObservation }
+/** One risk assessment, as plotted. Deliberately not called a "data point". */
+export interface ScoreObservation {
+  at: Date
+  score: number
+  band: RiskBand
+}
+
+/**
+ * Stored assessments, as the observation strip plots them.
+ *
+ * Each point carries the band PUBLISHED at the time, not one computed from its
+ * score now. Where the two differ the patient was in a `demoting` stretch, and
+ * that difference is the whole reason the strip exists. Refusals are dropped
+ * rather than plotted at zero — a gap is the honest rendering of no score.
+ */
+export function toObservations(history: Assessment[]): ScoreObservation[] {
+  return history.filter(isScored).map((assessment) => ({
+    at: new Date(assessment.assessed_at),
+    score: assessment.risk_score,
+    band: assessment.risk_level,
+  }))
+}
+
+export type { PatientContext }

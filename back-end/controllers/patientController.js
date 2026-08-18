@@ -117,5 +117,9 @@ module.exports = {
     getPatientInfo,
     getPatientReading,
     getWarning,
-    createNewPatient
+    // Was `createNewPatient`, which is not defined in this file. Exporting an
+    // undefined name throws a ReferenceError while the module is being
+    // evaluated -- at require() time, from routes/api/patient.js, from
+    // server.js -- so the process died before app.listen was ever reached.
+    create100NewPatient
 }

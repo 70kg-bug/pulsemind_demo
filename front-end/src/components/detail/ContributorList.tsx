@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import type { RiskContributor } from '../../types/clinical'
+import type { RiskContributor } from '@contract/clinical'
 import { cn } from '../../lib/cn'
 import { formatPercent } from '../../lib/format'
 

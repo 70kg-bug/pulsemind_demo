@@ -50,13 +50,21 @@ provenance travelling with every value it belongs to.
 
 ## Deploying
 
+⚠️ **A deployed build has no backend.** The board is served entirely from the Node API,
+which talks to MongoDB and to the local model service — and the model service holds a
+7 B language model and a GPU-pinned booster, so it runs on a workstation, not on Vercel.
+A static deploy renders the shell and then shows the error state on every fetch. That is
+the intended behaviour for now; the demo is **local-only**.
+
 `vercel.json` configures a static SPA deploy. Vercel needs no dashboard settings beyond
 connecting the repo.
 
 The routing rewrite is the load-bearing part: the app uses `BrowserRouter`, so without it
 a direct load or refresh of `/patient/PM-204` returns 404. `/assets/*` is deliberately
 excluded from the rewrite so a missing chunk 404s rather than returning `index.html`
-with a 200.
+with a 200 — and `/api/*` is excluded for the same reason. Rewriting an API call to
+`index.html` returns HTML with a 200, `.json()` then throws on `<`, and the board reads
+as broken rather than as backendless.
 
 Because `pnpm build` runs `tsc --noEmit` first, **a type error fails the deploy** rather
 than shipping.

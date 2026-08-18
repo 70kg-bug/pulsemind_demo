@@ -1,8 +1,9 @@
 import { Link } from 'react-router'
 import { ArrowRight } from 'lucide-react'
-import type { Assessment } from '../../types/clinical'
-import { isScored } from '../../types/clinical'
-import { getScoreHistory } from '../../data/feed'
+import type { Assessment } from '@contract/clinical'
+import { isScored } from '@contract/clinical'
+import { toObservations } from '../../data/feed'
+import { usePatientHistory } from '../../hooks/useApi'
 import { bandMeaning } from '../../data/bands'
 import { formatPercent, formatScore } from '../../lib/format'
 import { BandTag } from '../ui/BandTag'
@@ -17,7 +18,8 @@ interface SelectedPatientPanelProps {
 }
 
 /** The side panel: what the board's selected patient looks like up close. */
-export function SelectedPatientPanel({ assessment, now }: SelectedPatientPanelProps) {
+export function SelectedPatientPanel({ assessment }: SelectedPatientPanelProps) {
+  const { data: history } = usePatientHistory(assessment.patient_id)
   return (
     <Panel className="p-4">
       <SectionHeading trailing={assessment.patient_id}>Selected patient</SectionHeading>
@@ -56,7 +58,7 @@ export function SelectedPatientPanel({ assessment, now }: SelectedPatientPanelPr
 
           <div className="mt-5 border-t border-rule-faint pt-4">
             <SectionHeading className="mb-3">Assessment history</SectionHeading>
-            <ObservationStrip observations={getScoreHistory(assessment, now)} />
+            <ObservationStrip observations={toObservations(history ?? [])} />
           </div>
 
           {assessment.contributors.length > 0 && (

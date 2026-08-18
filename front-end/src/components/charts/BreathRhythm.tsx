@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Play } from 'lucide-react'
-import type { Assessment, RiskBand } from '../../types/clinical'
+import type { Assessment, RiskBand } from '@contract/clinical'
 import { cn } from '../../lib/cn'
 
 interface BreathRhythmProps {
