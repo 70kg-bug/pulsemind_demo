@@ -1,22 +1,18 @@
 """Map the internal record onto the frontend data contract.
 
-Separate from `model_runtime` on purpose: the record is the clinical shape
-`verify.py` checks and `core/explain.py` consumes, the contract is the display
-shape in `contract/clinical.ts`. When the finalised UI lands, this file changes
-and nothing behind it does.
+The clinical shape in, the display shape of `contract/clinical.ts` out. When the
+finalised UI lands, this file changes and nothing behind it does.
 
 Three mappings do real work rather than renaming a key:
 
   share_of_decision   |contribution| / attribution_total, over ALL 109 features.
-      Over the eight the record carries it would overstate every one of them --
-      the top-8 hold about 77% of the decision.
+      The top-8 hold about 77%, so a share over them overstates every one.
 
   assessment_status   the sufficiency floor decides this, not the model. Either
-      share above 0.30 means no score, no band and no prompt -- a refusal,
-      shaped differently so it can never be read as a low score.
+      share above 0.30 means no score, no band and no prompt -- shaped
+      differently so a refusal can never read as a low score.
 
-  source              the dictionary is normative: `population_reference`, not
-      `cohort_default`.
+  source              the dictionary is normative: `population_reference`.
 """
 from __future__ import annotations
 
@@ -101,11 +97,8 @@ def insufficiency_reason(record: dict) -> str | None:
 
 
 def parameters(record: dict) -> list[dict]:
-    """The eleven, each with its unit and its provenance.
-
-    Never a value without a source: four of the eleven are majority cohort
-    default, so a bare number states a population statistic in a clinical voice.
-    """
+    """The eleven, each with its unit and its provenance. Never a value without
+    a source -- four of the eleven are majority cohort default."""
     out = []
     for name, reading in record["telemetry"].items():
         _label, unit, _decimals = C.PARAM_DISPLAY[name]
@@ -115,10 +108,9 @@ def parameters(record: dict) -> list[dict]:
             "value": reading["value"],
             "unit": unit or None,
             "source": reading["source"],
-            # A cohort default has no age; the dictionary is normative. The
-            # record keeps s17's raw age, a real number when the parameter was
-            # charted beyond the 240-minute LOCF cutoff -- shown here it would
-            # give a population statistic a measurement's provenance.
+            # A cohort default has no age. The record keeps s17's raw age, which
+            # is real past the 240-minute LOCF cutoff; showing it here would give
+            # a population statistic a measurement's provenance.
             "age_minutes": None if default else reading["age_min"],
         })
     return out
@@ -135,9 +127,8 @@ def contributors(record: dict) -> list[dict]:
         parameter, suffix = split_feature(feature, C.PARAM_DISPLAY)
         out.append({
             "feature_name": label_for(feature),
-            # The machine name this feature derives from, or null for a static
-            # or intervention feature. The parameter screen joins on it;
-            # matching on the display label only ever worked by coincidence.
+            # The machine name to join on. Matching the display label instead
+            # only ever worked by coincidence.
             "parameter": parameter,
             "share_of_decision": round(abs(c["contribution"]) / total, 4),
             "rank": rank,
@@ -151,11 +142,10 @@ def _rests_on_a_default(feature: str, parameter: str | None, suffix: str | None,
                         imputed: set[str]) -> bool:
     """Does this driver rest on a value the patient never had?
 
-    Only the VALUE forms can. `fio2_delta_t_min` is charting behaviour -- a real
-    measured number even when FiO2 is a cohort default -- and marking it imputed
-    produces a contributor that is at once `kind: documentation` and
-    `is_imputed`, which `records.attribution` treats as impossible because the
-    two shares are defined over disjoint feature sets.
+    Only the VALUE forms can. `fio2_delta_t_min` is a real measured number even
+    when FiO2 is defaulted, and marking it imputed yields a contributor that is
+    at once `documentation` and `is_imputed` -- which `records.attribution`
+    treats as impossible, the two shares being over disjoint feature sets.
     """
     if feature == "tidal_volume_ml_per_kg_pbw":
         # Derived from tidal_volume_observed_final, so it inherits that
@@ -211,17 +201,14 @@ def assessment(record: dict, *, patient_id: str, bed_code: str, unit: str,
 def prompt_for(previous: str | None, current: dict, at: datetime) -> dict | None:
     """Raise a prompt only on a promotion, never on every reading.
 
-    58,765 golden-set assessments raised 1,721 prompts -- one interruption per
-    34 readings, and that gap is the point of the hysteresis machine.
+    58,765 golden-set assessments raised 1,721 prompts: one per 34 readings.
     """
     if current["assessment_status"] != "assessed":
         return None
     order = list(C.BAND_NAMES)
     now = current["risk_level"]
-    # An unrecognised watermark means the band table changed under stored
-    # state. Treating it as "no previous band" raises a prompt on the next
-    # non-LOW reading, the safe direction; `order.index` would instead take the
-    # whole ward down with a ValueError.
+    # An unrecognised watermark means the band table changed under stored state.
+    # "No previous band" is the safe direction; `order.index` would raise.
     if previous not in order:
         previous = None
     if previous is not None and order.index(now) <= order.index(previous):

@@ -7,13 +7,10 @@ import { formatClock, formatDate } from '../../lib/format'
 /**
  * The persistent chrome.
  *
- * This is where the petrol lives — at a lightness where its chroma is actually visible,
- * rather than as a near-imperceptible cast spread over the whole page.
- *
- * Two things here are load-bearing rather than decorative. The status indicator does not
- * pulse: a flashing indicator is the defining visual signature of an alarm signal, and
- * PulseMind raises none. And the categorical label is permanent at every viewport width,
- * so the product cannot be seen — or screenshotted — without it.
+ * Two things here are load-bearing. The status indicator does not pulse -- a
+ * flashing indicator is the visual signature of an alarm, and PulseMind raises
+ * none. The categorical label is permanent at every viewport width, so the
+ * product cannot be seen, or screenshotted, without it.
  */
 export function AppHeader() {
   const now = useClock()

@@ -21,14 +21,10 @@ const ACTIONS: Array<{ key: Disposition; label: string }> = [
 /**
  * A prompt requesting clinician review.
  *
- * These four buttons record a clinical review and close the prompt. They do not
- * silence anything: PulseMind has no alarm to silence, emits no sound, and the band
- * itself is unchanged by pressing any of them. That distinction is the reason the
- * banner says what it does — an acknowledge control is otherwise the behavioural
- * signature of an alarm system, and this is not one.
- *
- * Red is reserved. Escalate is weighted, not coloured, so that the only red on the
- * screen remains the CRITICAL band.
+ * These four buttons record a review and close the prompt. They silence nothing
+ * -- PulseMind has no alarm, emits no sound, and the band is unchanged by any of
+ * them. Red stays reserved for the CRITICAL band, so Escalate is weighted rather
+ * than coloured.
  */
 export function PromptBanner({
   prompt,

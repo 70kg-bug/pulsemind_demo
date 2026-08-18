@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { ArrowRight } from 'lucide-react'
 import type { Assessment } from '@contract/clinical'
 import { isScored } from '@contract/clinical'
-import { toObservations } from '../../data/feed'
+import { SUFFICIENCY_FLOOR, toObservations } from '../../data/feed'
 import { usePatientHistory } from '../../hooks/useApi'
 import { bandMeaning } from '../../data/bands'
 import { formatPercent, formatScore } from '../../lib/format'
@@ -81,7 +81,8 @@ export function SelectedPatientPanel({ assessment }: SelectedPatientPanelProps) 
             about them. No prompt is raised.
           </p>
           <p className="mt-3 font-mono text-2xs tabular-nums text-ink-500">
-            {formatPercent(assessment.imputed_share)} defaulted · floor is 30%
+            {formatPercent(assessment.imputed_share)} defaulted · floor is{' '}
+            {formatPercent(SUFFICIENCY_FLOOR)}
           </p>
         </div>
       )}

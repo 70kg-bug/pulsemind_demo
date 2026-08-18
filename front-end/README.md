@@ -23,23 +23,25 @@ pnpm type-check
 
 ## Layout
 
+The data contract is **not** in here. It lives at `../contract/clinical.ts`, aliased
+`@contract`, because this app is scheduled to be replaced and the contract has to outlive it.
+
 ```
 src/
-  types/clinical.ts     the frontend data contract, as types
   data/
-    feed.ts             the ONLY boundary between screens and the data source
-    mockFeed.ts         simulated ward — eight patients covering every contract state
+    feed.ts             the ONLY boundary between screens and the API
+    WardProvider.tsx    holds the ward; every selector in feed.ts reads it synchronously
     bands.ts            band table and calibrated cut points
     parameters.ts       the eleven frozen parameters
-    history.ts          simulated assessment and charting history
   lib/                  formatting, class merging, band and provenance style maps
-  hooks/                useClock
+  hooks/                useApi · useClock · useTheme
   components/           ui · charts · board · detail · chrome
   screens/              one per route
 ```
 
-`src/data/feed.ts` is the seam. Replacing the mock with a real transport is a change to
-that one file; no component imports `mockFeed` directly.
+`src/data/feed.ts` is the seam, and it now reads a live API — `fetch('/api/...')`, proxied
+to the Node service. It was a fixture module once; the swap touched that one file and no
+component changed, which is what the seam is for.
 
 ## Before changing anything visual
 
@@ -77,8 +79,3 @@ ever meant to be public.
 
 All data is simulated. No MIMIC-IV or other credentialed data appears in this repo, and
 none may be added to it.
-
-## `legacy/`
-
-The original vanilla HTML/CSS/JS demo, kept for reference during the port. It is not
-built or served.

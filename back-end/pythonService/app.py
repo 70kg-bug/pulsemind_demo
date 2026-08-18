@@ -1,14 +1,11 @@
-"""PulseMind model service.
-
-The only process that touches the model. It scores, bands and explains; it
-stores nothing. Per-stay state travels in and out with each request so the Node
-layer can keep it in MongoDB, which is what makes the history durable and a
-restart harmless.
+"""PulseMind model service. Scores, bands and explains; stores nothing.
 
     POST /ward/seed        build the ward and backfill its history
     POST /ward/tick        one more reading per bed
     POST /explain/patient  explain a stored record in plain language (slow)
     GET  /healthz          model, band table and scoring device
+
+Per-stay state travels in and out with each request, so Node keeps it in Mongo.
 
 Run from the repository root, with bki importable:
     ..\\.venv\\Scripts\\python.exe -m uvicorn app:app --app-dir back-end/pythonService
@@ -30,8 +27,8 @@ from pipeline import config as C
 async def lifespan(_app: FastAPI):
     """Load the model and validate the ward before the first request arrives.
 
-    `check_levels` fails loudly at startup rather than scoring a category the
-    model never saw, which would be coded NaN and answered anyway.
+    `check_levels` fails at startup rather than scoring an unseen category, which
+    would be coded NaN and answered anyway.
     """
     runtime = rt.runtime()
     sw.check_levels(runtime.assets)
@@ -92,8 +89,8 @@ def _score_tick(bed: sw.Bed, tick: int, at: datetime, seed: int,
     context = sw.context_for(bed, at - sw.TICK * tick)
     reading = sw.reading_for(bed, tick, at, seed)
 
-    # An offline source stops refreshing its parameters. The values do not
-    # vanish -- they age, which is what pushes a reading toward the floor.
+    # An offline source stops refreshing: values age rather than vanish, which
+    # is what pushes a reading toward the floor.
     if offline:
         supplied = _parameters_still_arriving(bed, offline)
         reading = sw.Reading(observed_at=reading.observed_at,
@@ -117,11 +114,10 @@ def _score_tick(bed: sw.Bed, tick: int, at: datetime, seed: int,
     if published["assessment_status"] == "assessed":
         published["prompt"] = contract.prompt_for(last_band, published, at)
 
-    # Node stores this alongside the assessment so `/explain/patient` explains
-    # THIS reading. Scoring the same inputs again at a later `now` steps the
-    # band machine a second time and narrates a dwell -- sometimes a band -- no
-    # stored row ever had, and grounding cannot catch it: both sides of the
-    # check would be wrong together.
+    # Node stores this so `/explain/patient` explains THIS reading. Re-scoring at
+    # a later `now` steps the band machine twice and narrates a dwell -- sometimes
+    # a band -- no stored row had; grounding cannot catch it, both sides of the
+    # check being wrong together.
     published["record"] = record
 
     return {"patient_id": bed.patient_id,
@@ -165,17 +161,14 @@ def healthz() -> dict:
 def seed(request: SeedRequest) -> dict:
     """Build the ward and score its backfilled history, oldest reading first.
 
-    Every stored band comes from pushing the real scores through the real
-    hysteresis machine in order. Labelling backfilled scores by threshold would
-    be faster and would fabricate the one thing the strip is for.
+    Bands come from pushing real scores through the real hysteresis machine in
+    order; thresholding them afterwards would fabricate the `demoting` stretch.
     """
     runtime = rt.runtime()
     sw.check_levels(runtime.assets)
 
-    # TIMEZONE-AWARE, deliberately: `isoformat()` on a naive datetime emits no
-    # offset and the browser reads it as LOCAL time, so every reading on the
-    # board claimed to be hours stale. On a screen whose job is to say how fresh
-    # a value is, that is not cosmetic.
+    # TIMEZONE-AWARE, deliberately: a naive `isoformat()` emits no offset, the
+    # browser reads it as local, and every reading claims to be hours stale.
     now = datetime.now(timezone.utc).replace(microsecond=0)
     start = now - sw.TICK * (request.backfill_ticks - 1)
 
@@ -221,21 +214,15 @@ def tick(request: TickRequest) -> dict:
 def explain_patient(request: ExplainRequest) -> dict:
     """Explain a stored reading, in plain language.
 
-    Separate from scoring because it is three orders of magnitude slower --
-    66 ms to score, 18 to 23 s to write -- and because a reading below the
-    sufficiency floor must never reach the generator at all.
-
-    The record arrives from Node rather than being rebuilt here. Rebuilding
-    re-scores the reading at a new `now`, which steps the band machine a second
-    time and explains a state the stored assessment never had.
+    Its own endpoint because it is three orders of magnitude slower: 66 ms to
+    score, 18-23 s to write. The record arrives from Node and is never rebuilt --
+    rebuilding re-scores at a new `now` and explains a state no row ever had.
     """
     bed = _bed(request.patient_id)
     if not request.record.get("telemetry"):
         raise HTTPException(422, "record is not a scored reading")
-    # The withholding bed exists to show what a bed with no explanation looks
-    # like. The guard belongs here, where the policy is: Node would otherwise
-    # generate one and overwrite the fixed string the assessment already
-    # carries, and the two screens would disagree about the same reading.
+    # The guard belongs where the policy is. Without it Node would generate an
+    # explanation and overwrite the fixed withheld string on the assessment.
     if bed.withhold_explanation:
         return {**contract.unavailable_explanation(),
                 "findings": [], "generator": None, "seconds": 0.0}

@@ -25,9 +25,6 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
       "@contract/*": [
         "../contract/*"
       ]

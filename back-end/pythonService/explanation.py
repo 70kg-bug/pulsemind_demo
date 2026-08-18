@@ -1,23 +1,17 @@
 """The plain-language explanation, generated locally and checked before it ships.
 
-Three facts shape this module, all measured rather than assumed
-(`bki/reports/s19_llm_explanations.json`):
+Measured, not assumed (`bki/reports/s19_llm_explanations.json`):
 
-  SLOW      median 18.2 s, p90 23.3 s per explanation. Three orders of magnitude
-            slower than the 0.05 s score, so it is a separate endpoint and the
-            generator loads on first use rather than at startup.
-
+  SLOW      median 18.2 s, p90 23.3 s -- three orders of magnitude past the
+            0.05 s score, so it is a separate endpoint and loads on first use.
   HEAVY     17 GB of weights, GPU only.
+  NOT YET   5 violations in 200 against a ship criterion of zero (TREND_CLAIM 3,
+            FABRICATED_NUMBER 1, IMPUTED_QUOTED 1). The template floor scores 0.
 
-  NOT YET   5 violations in 200 against a stated ship criterion of zero:
-            TREND_CLAIM 3, FABRICATED_NUMBER 1, IMPUTED_QUOTED 1. The
-            deterministic template floor scores 0 violations and 0 warnings.
-
-So every generated string is checked by `core.grounding` before it is returned,
-and a string that fails is replaced by the template floor rather than shown with
-a warning. The grounding checker deliberately shares no code with the generator
--- a checker built on the writer's assumptions inherits them and cannot catch
-them -- which is why the finding is reported alongside the substituted text.
+Every generated string is checked by `core.grounding` and a failing one is
+replaced by the template floor, with the finding reported alongside. The checker
+shares no code with the generator: one built on the writer's assumptions
+inherits them and cannot catch them.
 """
 from __future__ import annotations
 

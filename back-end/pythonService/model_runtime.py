@@ -1,15 +1,10 @@
 """Load the model once, score one reading, advance one band machine.
 
-Everything clinical comes from `pipeline.core` in the bki repo; this module owns
-no model logic of its own and holds the pieces for the process lifetime:
+Wires together `pipeline.core` from the bki repo and holds it for the process
+lifetime; owns no model logic of its own.
 
-    features.StayFeatures   raw parameters -> the 109-column row
-    scoring.load_scorer     the booster + Platt calibrator, pinned to a device
-    records.attribution     contributors, the signed tail, the three shares
-    bands.BandStepper       the published band, with hysteresis
-
-The service is STATELESS: per-stay snapshots arrive with the request and are
-returned with the response, so Mongo stays the single history of record.
+STATELESS: per-stay snapshots arrive with the request and leave with the
+response, so Mongo stays the single history of record.
 """
 from __future__ import annotations
 
@@ -37,12 +32,10 @@ class Runtime:
     scorer: object
     machine: B.BandMachine
     band_table_version: str
-    # Measured label rate, base rate, lift and envelope per band.
-    # `core/explain.build_payload` requires all four: an explanation that says
-    # CRITICAL without saying what CRITICAL was measured to mean names a colour.
+    # Measured label rate, base rate, lift and envelope per band. All four are
+    # required by `core/explain.build_payload`.
     band_meaning: dict
-    # The band table's provenance block verbatim, not a hand-picked subset --
-    # build_payload reads `arm` and `horizon_hours` out of it.
+    # Verbatim, not a subset: build_payload reads `arm` and `horizon_hours`.
     table_provenance: dict
 
     @property
@@ -58,24 +51,18 @@ class Runtime:
 
 
 # ---------------------------------------------------------------------------
-# ONE THREAD OWNS THE MODEL. This is the canonical statement of why; everything
-# else that funnels through here points back at it.
+# ONE THREAD OWNS THE MODEL, for the process lifetime. Canonical statement.
 #
-# The booster is pinned to CUDA -- the band cuts are only valid for the device
-# they were produced on, and CPU and CUDA disagree by up to 0.125 on the raw
-# score. A CUDA context belongs to the thread that created it, and XGBoost gives
-# no thread-safety guarantee for predict().
+# The booster is pinned to CUDA: the band cuts are only valid for the device they
+# were produced on, and CPU and CUDA disagree by up to 0.125 on the raw score.
 #
-# Measured: scoring on the main thread works, scoring on a worker thread works,
-# and scoring on the main thread AGAIN after a worker has touched the booster
-# kills the process with STATUS_STACK_BUFFER_OVERRUN (0xC0000409) -- no
-# traceback, no stderr. That is FastAPI's default behaviour: a `def` endpoint
-# runs in anyio's thread pool and successive requests land on different threads.
+# Measured: main thread works, worker thread works, main thread AGAIN after a
+# worker touched the booster kills the process with STATUS_STACK_BUFFER_OVERRUN
+# (0xC0000409), no traceback. That is FastAPI's default -- a `def` endpoint runs
+# in anyio's pool and successive requests land on different threads.
 #
-# A DAEMON thread rather than a ThreadPoolExecutor, for a second measured
-# reason: `executor.shutdown(wait=True)` dies 0xC0000409 too. The context cannot
-# be torn down while the runtime unloads around it, so the model is deliberately
-# never released -- this process exists to hold one, and only exit ends it.
+# DAEMON, not a ThreadPoolExecutor: `executor.shutdown(wait=True)` dies 0xC0000409
+# too, so the model is deliberately never released. Only exit ends this process.
 # ---------------------------------------------------------------------------
 _WORK: "queue.Queue[tuple]" = queue.Queue()
 _runtime: Runtime | None = None
@@ -111,10 +98,8 @@ def _on_model_thread(fn, *args):
 def on_model_thread(fn, *args):
     """Public: run anything that touches CUDA on the model thread.
 
-    The 7B generator comes through here too -- two CUDA contexts on two threads
-    segfault the interpreter (exit 139) partway through loading the weights. The
-    cost is that generating blocks scoring for 18-23 s, invisible on an hourly
-    tick. See the block above.
+    The 7B comes through here too -- two CUDA contexts on two threads segfault
+    the interpreter (exit 139) mid-load. Generating blocks scoring for 18-23 s.
     """
     return _on_model_thread(fn, *args)
 
@@ -148,9 +133,8 @@ def runtime() -> Runtime:
 def _restore_stay(context: PatientContext, state: dict | None):
     """Rebuild the two per-stay machines from a stored snapshot.
 
-    `None` starts a fresh stay -- correct for a new admission, wrong for a
-    restart, which is why the caller persists it. Private because it calls
-    `_load()` directly and so must already be on the model thread.
+    `None` starts a fresh stay: correct for a new admission, wrong for a restart,
+    which is why the caller persists it. Must already be on the model thread.
     """
     rt = _load()
     features = StayFeatures(context, rt.assets)
@@ -172,9 +156,8 @@ def snapshot(features: StayFeatures, stepper: B.BandStepper, origin: datetime) -
 def score(context: PatientContext, reading: Reading, state: dict | None) -> tuple[dict, dict]:
     """One reading in, one s17-shaped record and the next state out.
 
-    s17-shaped means the contract `pipeline/tools/verify.py` checks and
-    `core/explain.py` consumes. `contract.py` maps it to the display shape, so
-    the clinical and display shapes stay separable.
+    s17-shaped is the contract `verify.py` checks and `core/explain.py` consumes;
+    `contract.py` maps it to the display shape.
     """
     return _on_model_thread(_score, context, reading, state)
 

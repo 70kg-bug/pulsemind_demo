@@ -2,15 +2,12 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 /**
- * A review prompt, and the clinician's disposition of it.
+ * A review prompt and its disposition -- the only human-authored record in the
+ * system, which is why it is persisted rather than held in component state.
  *
- * The disposition is the only human-authored record in the system. RBAC and an
- * audit log are out of scope, so accountability is carried here alone -- reason
- * to persist it rather than hold it in component state.
- *
- * `band_at_raise` is frozen at raise time: the patient's current risk_level may
- * differ by the time anyone reviews it, and a prompt that re-labels itself
- * misrepresents what the clinician was asked to look at.
+ * `band_at_raise` is frozen at raise time: the current risk_level may differ by
+ * the time anyone reviews it, and a prompt that re-labels itself misrepresents
+ * what the clinician was asked to look at.
  */
 const promptSchema = new Schema({
   patient_id: { type: String, required: true },
@@ -31,8 +28,7 @@ const promptSchema = new Schema({
       type: String,
       enum: ['acknowledged', 'actioned', 'dismissed', 'escalated']
     },
-    // The only field a human writes. A short tracking note -- clinical
-    // documentation stays in the EHR.
+    // A short tracking note. Clinical documentation stays in the EHR.
     note: { type: String, default: null },
     reviewed_at: Date,
     clinician: String

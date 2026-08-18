@@ -4,22 +4,17 @@ const { Schema } = mongoose;
 /**
  * One risk assessment, exactly as the frontend contract describes it.
  *
- * The history of record, and neither screen that reads it can recompute what it
- * holds: the observation strip shows each reading's PUBLISHED risk_level, which
- * the hysteresis machine decided once and is not a function of that reading's
- * score. The parameter screen pivots the same rows, so there is no second
- * history collection.
- *
- * Its own collection rather than a field on Patient: readings accumulate for the
- * length of a stay, and an unbounded array walks into Mongo's 16 MB ceiling.
+ * The history of record. Its `risk_level` is the band the hysteresis machine
+ * PUBLISHED at the time, not a function of that reading's score, so no screen
+ * can recompute it. Its own collection because readings accumulate for the
+ * length of a stay and an unbounded array meets Mongo's 16 MB ceiling.
  */
 
 const parameterSchema = new Schema({
   parameter_name: { type: String, required: true },
   value: { type: Number, default: null },
   unit: { type: String, default: null },
-  // Three states, not two: `population_reference` means the model used a
-  // cohort default, a population statistic, never an observation.
+  // Three states, not two: `population_reference` is a cohort default.
   source: {
     type: String,
     enum: ['measured', 'carried_forward', 'population_reference'],
@@ -35,8 +30,7 @@ const contributorSchema = new Schema({
   // one. Declared because Mongoose strips undeclared keys in strict mode, which
   // is how the parameter screen went on matching a label against a description.
   parameter: { type: String, default: null },
-  // Over ALL 109 features, not the eight stored here -- that would overstate
-  // every one of them.
+  // Over ALL 109 features, not the eight stored here.
   share_of_decision: { type: Number, required: true },
   rank: { type: Number, required: true },
   kind: { type: String, enum: ['physiology', 'documentation'], required: true },
@@ -95,15 +89,14 @@ const assessmentSchema = new Schema({
   },
   readings_since_admission: Number,
 
-  // band_table_version is separate from model_version on purpose: re-fitting
-  // the bands changes what HIGH means without changing the model.
+  // Separate from model_version: re-fitting the bands changes what HIGH means
+  // without changing the model.
   model_version: String,
   band_table_version: String,
   scoring_device: String,
 
-  // The internal record this was mapped from, so the explanation is generated
-  // against the exact reading that was scored. `select: false` keeps model
-  // internals out of every query that feeds the browser.
+  // The record this was mapped from, so the explanation is generated against
+  // the exact reading scored. `select: false` keeps it out of browser queries.
   record: { type: Schema.Types.Mixed, select: false }
 }, { timestamps: true });
 

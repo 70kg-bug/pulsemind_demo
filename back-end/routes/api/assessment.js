@@ -4,13 +4,13 @@ const assessmentController = require('../../controllers/assessmentController');
 const asyncHandler = require('../../middleware/asyncHandler');
 const h = asyncHandler;
 
-// Reads are served from MongoDB alone; only the two ward operations and the
+// Reads come from MongoDB alone; only the two ward operations and the
 // explanation reach the model service.
 //
-// No auth guard yet. SR001 and SR005 require RBAC before a clinician sees a
-// prompt, and its absence is a listed blocker before any pilot. verifyJWT and
-// verifyRoles exist in middleware/ and are deliberately NOT mounted -- an
-// unmounted guard is visible, a permissive one is not.
+// No auth guard. SR001 and SR005 require RBAC before a clinician sees a prompt
+// and its absence is a listed blocker before any pilot; `verifyJWT` and
+// `verifyRoles` are deliberately unmounted, because an unmounted guard is
+// visible and a permissive one is not.
 
 // Every handler is async and touches the database -- see middleware/asyncHandler.
 router.get('/ward', h(assessmentController.getWard));

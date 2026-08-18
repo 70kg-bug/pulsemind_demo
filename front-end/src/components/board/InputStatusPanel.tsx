@@ -22,17 +22,11 @@ const STATE_LABEL: Record<DeviceState, string> = {
 /**
  * Where the data is coming from.
  *
- * This is connection health, which is a different thing from the model's
- * data-sufficiency measure — a source can be streaming perfectly while most of the
- * parameters it does not carry are still population defaults.
+ * Connection health, which is not the model's data-sufficiency measure: a source
+ * can stream perfectly while the parameters it does not carry stay defaulted.
  *
- * The signal counters are live: they read a real timestamp against the shared clock and
- * genuinely climb.
- *
- * The simulation control is deliberately fenced off below the device list rather than
- * sitting inline beside "Hamilton C6 · VNT-04". PulseMind sends nothing to these
- * sources, and a switch rendered next to a real make and model would contradict that in
- * a screenshot.
+ * The simulation control is fenced off below the device list rather than sitting
+ * beside a real make and model. PulseMind writes nothing to these sources.
  */
 export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelProps) {
   const { toggleDevice } = useWard()

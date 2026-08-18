@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
 import type { Disposition } from '@contract/clinical'
 import { isScored } from '@contract/clinical'
-import { reviewPrompt, toObservations } from '../data/feed'
+import { SUFFICIENCY_FLOOR, reviewPrompt, toObservations } from '../data/feed'
 import { useAssessment, useWard } from '../data/WardProvider'
 import { bandMeaning } from '../data/bands'
 import { useClock } from '../hooks/useClock'
@@ -151,7 +151,8 @@ export function PatientDetail() {
             </p>
             <p className="mt-2 font-mono text-2xs tabular-nums text-ink-500">
               {formatPercent(assessment.imputed_share)} of inputs defaulted ·{' '}
-              {formatPercent(assessment.documentation_share)} charting · floor is 30%
+              {formatPercent(assessment.documentation_share)} charting · floor is{' '}
+              {formatPercent(SUFFICIENCY_FLOOR)}
             </p>
           </Panel>
         )}

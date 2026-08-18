@@ -22,18 +22,12 @@ function labelledIndexes(count: number): Set<number> {
 /**
  * Assessment history, as a log rather than a curve.
  *
- * The model has no trend inputs. Every score is computed independently from the values
- * available at that moment, so any mark-to-mark line would assert something the model
- * cannot support — that is a named safety violation, not a stylistic preference.
- *
- * Three properties make that structurally impossible here rather than merely avoided:
- *
- *   - Slots are categorical and equal-width, so there is no continuous time axis for a
- *     slope to exist on. Each slot carries its own timestamp instead.
- *   - Only the band is plotted, never the underlying score. A continuous score drawn
- *     over time is a slope waiting to be read; a sequence of band marks is a record.
- *   - Nothing connects two marks, and a refused reading leaves a visible gap rather
- *     than being bridged.
+ * The model has no trend inputs, so any mark-to-mark line would assert something
+ * it cannot support -- a named safety violation, not a preference. Three things
+ * make that structurally impossible rather than merely avoided: slots are
+ * categorical and equal-width so no slope can exist; only the band is plotted,
+ * never the score; and nothing connects two marks, with a refused reading
+ * leaving a visible gap rather than being bridged.
  */
 export function ObservationStrip({ observations, className }: ObservationStripProps) {
   const [hovered, setHovered] = useState<number | null>(null)

@@ -17,14 +17,9 @@ const STROKE: Record<InputSource, string> = {
 /**
  * One parameter's charting history.
  *
- * The path is stepped, and here that is truthful rather than a compromise: a
- * carried-forward value genuinely does hold flat until it is remeasured, so a
- * horizontal run is a fact about the record. This is the opposite of the risk-score
- * history, where nothing holds between observations and any connecting line would be
- * an invention.
- *
- * Colour carries provenance, not slope. What this chart shows is when a value was
- * measured, reused or defaulted — not a clinical trend.
+ * The stepped path is truthful here: a carried-forward value genuinely holds
+ * flat until remeasured. Colour carries provenance, not slope -- this shows when
+ * a value was measured, reused or defaulted, never a clinical trend.
  */
 export function ProvenanceTrace({ history, definition }: ProvenanceTraceProps) {
   if (history.length < 2) {

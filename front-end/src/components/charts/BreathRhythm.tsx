@@ -34,31 +34,22 @@ function respiratoryRate(assessment: Assessment): number | null {
 /**
  * The patient's ventilation, as motion.
  *
- * Period comes from the charted respiratory rate. Amplitude comes from the band. That
- * split is deliberate and it is the whole safety argument: IEC 60601-1-8 specifies alarm
- * indicators by flash frequency — 1.4–2.8 Hz high priority, 0.4–0.8 Hz medium — so
- * frequency is the channel that carries alarm priority. Here frequency is set by the
- * patient's physiology and never by severity. Amplitude, which the standard is silent
- * on, is what varies with band.
+ * Period comes from the charted respiratory rate, amplitude from the band, and
+ * that split is the safety argument. IEC 60601-1-8 specifies alarm indicators by
+ * flash frequency (1.4-2.8 Hz high, 0.4-0.8 Hz medium), so frequency is the
+ * channel that carries alarm priority -- here it is set by physiology and never
+ * by severity. Amplitude, which the standard is silent on, carries the band.
  *
- * The effect the viewer sees is still "faster when sicker", because respiratory rate
- * genuinely tracks band in ventilated patients — but it is true rather than encoded.
+ * Four properties it must not ship without:
  *
- * Four further properties, and it should not ship without any of them:
+ *   - Never auto-starts: six breaths on a press, so WCAG 2.2.2 never attaches
+ *     and no pause control is needed. A pause control would read as an alarm.
+ *   - Bounded fill in a fixed track, never a growing glyph.
+ *   - Continuous, 100% duty. A flashing indicator is a 20-60% duty square wave.
+ *   - Achromatic, beside the numeral rather than replacing it.
  *
- *   - It never auto-starts. Six breaths on a press, then it stops. WCAG 2.2.2 therefore
- *     never attaches, so no pause control is needed — which matters, because a pause
- *     control is one of the behaviours that would make this read as an alarm.
- *   - Bounded fill in a fixed track, never a growing glyph. Looming motion captures
- *     attention involuntarily; a bar rising inside a fixed frame does not.
- *   - Continuous, 100% duty, no off phase. A flashing indicator is a two-state square
- *     wave at 20–60% duty; 100% duty is the standard's non-flashing row.
- *   - Achromatic, and beside the numeral it encodes rather than replacing it. Colouring
- *     a moving element with the severity hue is the one combination that would read as
- *     an alarm indicator.
- *
- * Under a reduced-motion preference the global rule freezes the animation on its first
- * frame, which is why the resting frame is drawn as a legible flat trace.
+ * A reduced-motion preference freezes it on the first frame, which is why the
+ * resting frame is drawn as a legible flat trace.
  */
 export function BreathRhythm({ assessment, band, size = 'detail' }: BreathRhythmProps) {
   const [run, setRun] = useState(0)

@@ -1,12 +1,8 @@
 /**
- * The PulseMind data contract, as types. Shared by both halves of the demo.
+ * The PulseMind data contract, as types. Shared by both halves of the demo, and
+ * outside front-end/ because the dashboard is scheduled to be replaced.
  *
- * OUTSIDE front-end/ deliberately: the dashboard is scheduled to be replaced by
- * a finalised UI, and a contract living inside the app being swapped out goes
- * with it.
- *
- * Field names come from `planning/PulseMind_Frontend_Data_Contract.pdf` and the
- * data dictionary; every value on screen traces to a schema field. Where the two
+ * Field names come from the contract PDF and the data dictionary; where they
  * disagree the dictionary wins, which is why `InputSource` reads
  * `population_reference` and not the PDF's `cohort_default`.
  */
@@ -28,19 +24,16 @@ export type InsufficiencyReason =
  * Where the displayed band sits relative to the raw score. `provisional` — a
  * promotion is pending. `demoting` — the band is held above the score.
  *
- * Promotion is immediate with the shipped machine, so `provisional` does not
- * currently occur: 58,765 golden-set readings show only `confirmed` and
- * `demoting`. It stays in the union because the dwell is a property of the band
- * table, not the model.
+ * Promotion is immediate with the shipped machine, so `provisional` occurs in 0
+ * of 58,765 golden-set readings. It stays in the union because the dwell is a
+ * property of the band table, not the model.
  */
 export type BandState = 'confirmed' | 'provisional' | 'demoting'
 
 /**
  * How a parameter value was obtained. Never render a value without this.
- *
- * Three states, not two: `population_reference` means the model used a cohort
- * default, a population statistic, never to be narrated as an observation. Four
- * of the eleven parameters are majority cohort default across the cohort.
+ * Three states, not two: `population_reference` is a population statistic and
+ * must never be narrated as an observation.
  */
 export type InputSource = 'measured' | 'carried_forward' | 'population_reference'
 
@@ -95,9 +88,8 @@ export interface ParameterHistoryPoint {
 
 export interface RiskContributor {
   feature_name: string
-  /** The parameter this feature derives from, null for a static or intervention
-   *  feature. The only safe join key: `feature_name` is a display label and
-   *  several features share one parameter. */
+  /** The parameter this derives from, null for a static or intervention feature.
+   *  The only safe join key -- `feature_name` is a display label. */
   parameter: ParameterName | null
   /** |contribution| over the total across ALL 109 features, not over the stored eight. */
   share_of_decision: number

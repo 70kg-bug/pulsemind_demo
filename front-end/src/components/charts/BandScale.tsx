@@ -21,13 +21,8 @@ const SHORT_LABEL: Record<RiskBand, string> = {
 /**
  * Where this score sits across the whole scale.
  *
- * Segment widths are the real calibrated cut points, so the picture is honest: the
- * LOW band is narrow in score terms yet holds most readings, and almost half the
- * probability space above 0.543 is CRITICAL. A decorative four-equal-segments bar
- * would quietly misrepresent that.
- *
- * The scale explains the band. It never computes one — the published band arrives
- * already decided by the hysteresis machine.
+ * Segment widths are the real calibrated cut points: almost half the probability
+ * space above 0.543 is CRITICAL. The scale explains the band, never computes one.
  */
 export function BandScale({ score, band, className }: BandScaleProps) {
   return (

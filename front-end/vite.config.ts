@@ -7,7 +7,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
       // The data contract lives outside this app on purpose: the dashboard is
       // being replaced, and the contract has to outlive it.
       '@contract': path.resolve(__dirname, '../contract'),

@@ -39,15 +39,11 @@ function assignRows(patients: ScoredAssessment[]): Map<string, number> {
 /**
  * The ward on one calibrated axis.
  *
- * Segment widths are the real cut points from the band table, not four equal quarters,
- * so the geometry itself carries a fact about the model: the LOW band is narrow in score
- * terms yet holds 71.5% of all readings, and nearly half the probability space sits
- * above the CRITICAL cut. A decorative four-equal-segment bar would quietly misrepresent
- * that.
+ * Segment widths are the real cut points, so the geometry carries a fact: the
+ * LOW band is narrow in score terms yet holds 71.5% of all readings, and nearly
+ * half the probability space sits above the CRITICAL cut.
  *
- * The scale explains where a patient sits. It never decides a band — the published band
- * arrives already settled by the hysteresis machine, and re-deriving it here would throw
- * that away.
+ * It explains where a patient sits and never decides a band.
  */
 export function WardScale({ patients, selectedId, onSelect }: WardScaleProps) {
   const rows = assignRows(patients)

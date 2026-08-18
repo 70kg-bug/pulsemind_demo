@@ -12,17 +12,9 @@ interface ExplanationPanelProps {
 /**
  * The plain-language rationale.
  *
- * Three outcomes, and they must not look alike:
- *
- *   generated    — the narrative, plus the record that it was checked against the
- *                  assessment it describes.
- *   unavailable  — generation was attempted and failed. The fixed string is shown
- *                  verbatim, and the score, band, inputs and ranked factors above all
- *                  remain. Only the narrative is withheld.
- *   absent       — generation was never attempted.
- *
- * Nothing is ever generated to fill an absence. A slot that signals "we do not have
- * this" must not contain prose.
+ * Three outcomes that must not look alike: generated and grounded, generated
+ * then withheld because grounding failed, and never requested. Nothing is ever
+ * generated to fill an absence.
  */
 export function ExplanationPanel({ explanation, patientId }: ExplanationPanelProps) {
   const [generated, setGenerated] = useState<Explanation | null>(null)

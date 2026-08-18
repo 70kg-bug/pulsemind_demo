@@ -15,11 +15,9 @@ interface DataLimitedRowProps {
 /**
  * A patient whose latest reading fell below the data-sufficiency floor.
  *
- * There is no score, no band and no prompt, and the row is styled so it cannot be
- * mistaken for a low one — refusing to answer and answering "low" are different facts,
- * and an earlier version of this data model could not tell them apart.
- *
- * This is a result, not an error and not a loading state.
+ * No score, no band, no prompt, and styled so it cannot be mistaken for a low
+ * one. Refusing to answer and answering "low" are different facts. This is a
+ * result, not an error and not a loading state.
  */
 export function DataLimitedRow({ assessment, selected, onSelect, now }: DataLimitedRowProps) {
   return (

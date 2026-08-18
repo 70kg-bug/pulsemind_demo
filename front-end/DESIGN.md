@@ -250,12 +250,14 @@ Plain React: `useState` and `useEffect`, props down, one component per file name
 it is. No custom abstraction layers, no defensive noise, no logging telemetry.
 
 Variants come from the maps in `src/lib/bandStyles.ts`, so restyling a state is an edit in
-one place. Screens depend on the data contract and never on the mock — all access goes
-through `src/data/feed.ts`, and swapping in a real transport is a change to that file
-alone.
+one place. Screens depend on the data contract, never on a transport — all access goes
+through `src/data/feed.ts`, which is what let the fixture become a live API without a
+component changing.
 
-`WardProvider` holds the only state in the product: which input sources are switched off in
-the simulation. Everything else is still derived, and `applyOfflineDevices` is pure.
+`WardProvider` holds the ward and nothing else. Switching an input source off is a request,
+not a local recalculation: only the model knows how much of the decision rested on the
+values that stopped arriving. `offlineDeviceIds` is derived from the API's own
+`device.state` rather than stored separately, so there is no second copy to disagree.
 
 Tailwind class names are written out in full. The scanner reads source text statically, so
 a template like `bg-band-${band}-tint` produces no CSS.

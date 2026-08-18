@@ -3,12 +3,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 /**
  * Catches a render error so one broken screen does not blank the board.
  *
- * A white page is the worst possible failure for this product: it looks like
- * "nothing is wrong" rather than "the display stopped". A clinician has no way
- * to tell those apart, so the boundary says plainly that the screen failed and
- * that the data behind it is unaffected.
- *
- * Class component because React has no hook equivalent.
+ * A white page reads as "nothing is wrong" rather than "the display stopped",
+ * and a clinician cannot tell those apart. Class component: no hook equivalent.
  */
 export class ErrorBoundary extends Component<
   { children: ReactNode },

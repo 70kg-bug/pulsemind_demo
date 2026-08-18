@@ -1,26 +1,17 @@
 """A manufactured ICU ward, in the canonical schema.
 
-NOTHING HERE IS DERIVED FROM MIMIC-IV. That is a licence constraint, not a
-stylistic one: `pulsemind_demo` is a public repository and the assessments this
-service produces are written to a cloud database, so no per-patient value
-covered by the PhysioNet data use agreement may reach either. The model is real,
-the pipeline is real, the physiology is invented.
+NOTHING HERE IS DERIVED FROM MIMIC-IV -- a licence constraint: this repository is
+public and these assessments are written to a cloud database, so no value covered
+by the PhysioNet DUA may reach either. The model is real, the physiology invented.
 
-Two properties the demo depends on:
+  DETERMINISTIC  a function of (seed, bed, tick), so the ward comes up
+      identically twice and the service regenerates rather than remembers.
+  COMPLETE       the eight beds cover every state the contract can represent:
+      each band, a `demoting` stretch, a reading below the sufficiency floor, a
+      majority-defaulted parameter, and a withheld explanation.
 
-  DETERMINISTIC   Everything is a function of (seed, bed index, tick), so the
-      ward comes up identically twice and the service can stay stateless -- it
-      regenerates a reading rather than remembering one.
-
-  COMPLETE        Between them the eight beds exercise every state the contract
-      can represent: each band, a `demoting` stretch, a reading below the
-      sufficiency floor, a parameter that is majority cohort default, and a
-      patient whose explanation is withheld. A demo that only shows the happy
-      path proves the happy path.
-
-Category values are checked against the model's own level set at startup. An
-unrecognised value would be coded as NaN and scored anyway, which is the kind of
-thing that produces a plausible number from a meaningless input.
+`check_levels()` validates category values against the model's own level set at
+startup; an unrecognised one would be coded NaN and scored anyway.
 """
 from __future__ import annotations
 
@@ -91,19 +82,14 @@ WARD: tuple[Bed, ...] = (
         "F", 45, 168, 64, (),
         spo2_slope=0.0, fio2_slope=0.0, spo2_start=99, ventilated_hours_before_start=4,
         vent_mode="PSV/SBT"),
-    # The interface was never commissioned for this bed: NONE of the eleven
-    # parameters arrive, every one is a cohort default, and no score may be
-    # published on any reading.
+    # The interface was never commissioned: NONE of the eleven arrive, so no
+    # score may be published on any reading.
     #
-    # All eleven, and the reason is worth keeping. With nine absent the shares
-    # sat at 0.2962 imputed / 0.2997 documentation against a 0.30 floor, so the
-    # bed refused on some readings and published LOW on others. Worse, the
-    # provenance was IDENTICAL on every reading -- one measured, ten defaulted --
-    # while `imputed_share` drifted from 0.2315 to 0.3695 across the stay. The
-    # floor is a function of where the model's attribution lands, not of how
-    # many inputs are missing, so a fixed missingness pattern can still wander
-    # across it. A demonstration of a threshold has to sit clear of it on every
-    # reading, not most.
+    # ALL eleven, not nine. With nine the shares sat at 0.2962 imputed / 0.2997
+    # documentation against a 0.30 floor and the bed published LOW on some
+    # readings -- while its provenance was IDENTICAL throughout and
+    # `imputed_share` still drifted 0.2315 -> 0.3695. The floor tracks where
+    # attribution lands, not how many inputs are missing.
     Bed("PM-355", "ICU 12", "MICU", "Medical Intensive Care Unit (MICU)",
         "M", 70, 172, 79, (("J960", 10),),
         spo2_start=95, absent=ALL_PARAMS,
@@ -137,7 +123,7 @@ FIXED = {
 def check_levels(assets: ServingAssets) -> None:
     """Fail at startup if the ward would emit a category the model never saw.
 
-    An unrecognised level is coded as NaN by pandas and scored without complaint,
+    An unrecognised level is coded NaN by pandas and scored without complaint,
     so this is the difference between a wrong answer and no answer.
     """
     problems = []

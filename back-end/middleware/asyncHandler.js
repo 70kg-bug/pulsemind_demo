@@ -1,10 +1,7 @@
 /**
  * Wrap an async route so a rejected promise becomes a response, not an exit.
- *
- * Express 4 does not forward rejections from an async handler and Node exits
- * on an unhandled one, so `POST /api/prompt/notanid/review` was enough to take
- * the whole board down -- Mongoose throws CastError on a malformed id. That is
- * the client's mistake, so it answers 400 here; everything else is forwarded.
+ * Express 4 does not forward them and Node exits, so
+ * `POST /api/prompt/notanid/review` was enough to take the board down.
  */
 const asyncHandler = (handler) => (req, res, next) =>
   Promise.resolve(handler(req, res, next)).catch((err) => {

@@ -36,21 +36,14 @@ app.use(express.json());
 //middleware for cookies
 app.use(cookieParser());
 
-//serve static files
-app.use('/', express.static(path.join(__dirname, '/public')));
-
-// routes
-// app.use('/', require('./routes/root'));
-// app.use('/register', require('./routes/register'));
-// app.use('/auth', require('./routes/auth'));
-// app.use('/refresh', require('./routes/refresh'));
-// app.use('/logout', require('./routes/logout'));
-
+// No auth guard is mounted. `middleware/verifyJWT` and `verifyRoles` are kept
+// and deliberately left unmounted: SR001 and SR005 require RBAC before a
+// clinician sees a prompt, and an unmounted guard is visible here where someone
+// reading the routes will find it. A guard that is present but permissive is not.
 // app.use(verifyJWT);
-app.use('/patient', require('./routes/api/patient'));
 
-// The dashboard reads everything through here. Scoring happens in the model
-// service; this layer stores what it returns and serves the history back.
+// The whole API. The dashboard reads everything through here; scoring happens in
+// the model service and this layer stores what it returns.
 app.use('/api', require('./routes/api/assessment'));
 
 app.all('*', (req, res) => {

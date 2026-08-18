@@ -1,16 +1,13 @@
 /**
  * Band and provenance styling, in one place.
  *
- * Components read from these maps rather than branching on a band internally, so
- * adding or restyling a state is an edit here and nowhere else.
- *
- * Class names are written out in full because Tailwind scans source text for literal
- * strings — a template like `bg-band-${band}-tint` produces no CSS.
+ * Class names are written out in full because Tailwind's scanner reads source
+ * text statically -- `bg-band-${band}-tint` produces no CSS at all.
  */
 
 import type { BandState, InputSource, RiskBand } from '@contract/clinical'
 
-export interface BandStyle {
+interface BandStyle {
   /** Pale fill for a cell. Always paired with `text-ink-950`. */
   tint: string
   /** Saturated colour for a mark, dot or the band word. */
@@ -60,7 +57,7 @@ export const BAND_STYLES: Record<RiskBand, BandStyle> = {
   },
 }
 
-export interface ProvenanceStyle {
+interface ProvenanceStyle {
   /** Short word shown in a source column. */
   label: string
   /**

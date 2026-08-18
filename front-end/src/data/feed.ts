@@ -15,7 +15,6 @@ import type {
   Assessment,
   ParameterHistoryPoint,
   ParameterName,
-  PatientContext,
   RefusedAssessment,
   RiskBand,
   ScoredAssessment,
@@ -113,13 +112,6 @@ export function reviewPrompt(
 // Selectors — synchronous, over data already held by WardProvider
 // ---------------------------------------------------------------------------
 
-export function getAssessment(
-  ward: Assessment[],
-  patientId: string,
-): Assessment | undefined {
-  return ward.find((assessment) => assessment.patient_id === patientId)
-}
-
 /** Scored patients, ordered for triage: open prompt, then published band, then
  *  score. The band is used as given — never re-derived. */
 export function rankedPatients(ward: Assessment[]): ScoredAssessment[] {
@@ -186,5 +178,3 @@ export function toObservations(history: Assessment[]): ScoreObservation[] {
     band: assessment.risk_level,
   }))
 }
-
-export type { PatientContext }
