@@ -51,7 +51,9 @@ export function PatientDetail() {
 
   const scored = isScored(assessment) ? assessment : null
   const promptIsOpen = scored?.prompt?.status === 'open'
-  const review = scored?.review ?? null
+  // `disposition` and not the object: a review is only a review once someone
+  // has recorded one, and an empty shell renders as "closed as at NaN:NaN:NaN".
+  const review = scored?.review?.disposition ? scored.review : null
 
   // The disposition is persisted, not held in component state. It is the only
   // human-authored record in the system, and the screen previously said "Review

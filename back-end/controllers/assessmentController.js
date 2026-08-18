@@ -334,7 +334,12 @@ const withPrompt = async (assessment) => {
   // structurally unreachable: an open prompt has no review by definition.
   const prompt = await Prompt.findOne({ patient_id: assessment.patient_id })
     .sort({ raised_at: -1 }).lean();
-  return { ...assessment, prompt: prompt || null, review: prompt?.review || null };
+  // Keyed on `disposition`, not on the object existing. Mongoose materialises
+  // the nested `review` path as `{}` on a prompt nobody has reviewed, and `{}`
+  // is truthy -- which put "Review recorded ... at NaN:NaN:NaN by ." on screen
+  // beside a prompt that was still open and awaiting exactly that review.
+  const review = prompt?.review?.disposition ? prompt.review : null;
+  return { ...assessment, prompt: prompt || null, review };
 };
 
 module.exports = {
