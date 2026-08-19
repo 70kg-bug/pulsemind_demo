@@ -6,8 +6,9 @@ const DEFAULT_CADENCE = 3000
 
 export interface WardStream {
   streaming: boolean
-  /** Completed ticks. Monotonic across stop/start, so it can be used as a
-   *  "something changed" revision without ever going backwards. */
+  /** Completed ticks in the current run. Reset by `start`, because it is read
+   *  as "how much have I sent since I pressed play" — anything that needs a
+   *  change signal uses the ward's `revision` instead. */
   ticks: number
   error: string | null
   cadenceMs: number
@@ -115,6 +116,7 @@ export function useWardStream(advance: () => Promise<void>): WardStream {
     epoch.current += 1
     setStreaming(true)
     setError(null)
+    setTicks(0)
     // `paused` is deliberately untouched: a generation already holding the
     // stream must keep holding it across a start.
     void loop(epoch.current)

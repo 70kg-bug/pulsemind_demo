@@ -35,6 +35,13 @@ const DEMO_BACKFILL = 4
 export function SimulationBar() {
   const { stream, refresh } = useWard()
   const [busy, setBusy] = useState<'seed' | 'warm' | null>(null)
+  // ARMED, NOT TIMED. Restarting deletes every assessment, prompt and clinician
+  // disposition — the last of which is the only human-authored record the system
+  // holds and the one thing a re-seed cannot reproduce. It sits one click from
+  // "Stream ward" in permanent chrome, so it asks first. A countdown or a
+  // hover-reveal would both expire on their own, which this interface does not
+  // do: a nurse returning to an interrupted screen must find it as they left it.
+  const [armed, setArmed] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -48,6 +55,7 @@ export function SimulationBar() {
   }
 
   async function restart() {
+    setArmed(false)
     stream.stop()
     begin('seed')
     try {
@@ -103,13 +111,28 @@ export function SimulationBar() {
 
         <button
           type="button"
-          onClick={() => void restart()}
+          onClick={() => (armed ? void restart() : setArmed(true))}
           disabled={busy !== null}
-          className={cn(button, 'border-chrome-rule text-chrome-ink-dim hover:text-chrome-ink')}
+          className={cn(
+            button,
+            armed
+              ? 'border-band-critical-edge text-chrome-ink'
+              : 'border-chrome-rule text-chrome-ink-dim hover:text-chrome-ink',
+          )}
         >
           <RotateCcw size={11} strokeWidth={2.5} />
-          {busy === 'seed' ? 'Rebuilding…' : 'Restart'}
+          {busy === 'seed' ? 'Rebuilding…' : armed ? 'Delete ward and rebuild?' : 'Restart'}
         </button>
+
+        {armed && busy === null && (
+          <button
+            type="button"
+            onClick={() => setArmed(false)}
+            className={cn(button, 'border-chrome-rule text-chrome-ink-dim hover:text-chrome-ink')}
+          >
+            Cancel
+          </button>
+        )}
 
         <button
           type="button"

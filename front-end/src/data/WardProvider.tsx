@@ -1,6 +1,7 @@
 import {
   createContext,
   useCallback,
+  useRef,
   useContext,
   useEffect,
   useMemo,
@@ -49,11 +50,16 @@ export function WardProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const [revision, setRevision] = useState(0)
+  // The FIRST load is not a change. Bumping on it too meant anything mounted
+  // before the ward arrived — a deep link straight to a patient — fetched its
+  // history once at revision 0 and again the moment the provider settled.
+  const loaded = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
       setWard(await fetchWard())
-      setRevision((n) => n + 1)
+      if (loaded.current) setRevision((n) => n + 1)
+      loaded.current = true
       setError(null)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'the ward could not be loaded')
