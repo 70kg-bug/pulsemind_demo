@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import type { ScoredAssessment } from '@contract/clinical'
 import { BANDS } from '../../data/bands'
 import { BAND_STYLES } from '../../lib/bandStyles'
@@ -107,30 +108,64 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
           if (!placement) return null
           const selected = patient.patient_id === selectedId
 
-          // The line is anchored at the mark and rotated about its own foot, so
-          // its head lands on the displaced label by construction: with a
-          // rotation of atan(shift / rise) and a length of hypot(shift, rise),
-          // the top end is exactly `shift` across and `rise` up.
+          // TWO SEGMENTS, AND THE SPLIT IS WHAT STOPS THEM CROSSING.
+          //
+          // The diagonal fans every mark out to the SAME height, and the rows
+          // are climbed by a vertical riser above it. One straight line per
+          // label, drawn to its own row's height, was the earlier design and it
+          // crossed: `row = index % rows` cycles the rise, so two adjacent
+          // labels get very different slopes and one leader overtakes the other
+          // between the axis and the text — a clinician tracing a mark upward
+          // arrives at the wrong bed code. Measured on 29% of 200,000 clustered
+          // configurations; the evenly-spread demo ward happens never to show it.
+          //
+          // Why the split is sound rather than merely better: the diagonals all
+          // rise the same LEADER_HEIGHT, and with `trueX` and `placedX` both
+          // non-decreasing the gap between two of them is linear in height and
+          // non-negative at both ends, so it cannot change sign between them.
+          // The risers sit at distinct `placedX` and live entirely above the
+          // diagonals, so they meet neither each other nor a diagonal.
+          //
+          // The diagonal is anchored at the mark and rotated about its own foot,
+          // so its head lands on the label's column by construction: rotation
+          // atan(shift / LEADER_HEIGHT), length hypot(shift, LEADER_HEIGHT).
           const shift = placement.placedX - placement.trueX
-          const rise = LEADER_HEIGHT + placement.row * ROW_PITCH
-          const length = Math.hypot(shift, rise)
-          const angle = (Math.atan2(shift, rise) * 180) / Math.PI
+          const length = Math.hypot(shift, LEADER_HEIGHT)
+          const angle = (Math.atan2(shift, LEADER_HEIGHT) * 180) / Math.PI
+          const riser = placement.row * ROW_PITCH
 
           return (
-            <span
-              key={`leader-${patient.patient_id}`}
-              className={cn(
-                'absolute bottom-0 w-px origin-bottom',
-                selected ? 'bg-ink-950' : 'bg-ink-300',
+            <Fragment key={`leader-${patient.patient_id}`}>
+              <span
+                className={cn(
+                  'absolute bottom-0 w-px origin-bottom',
+                  selected ? 'bg-ink-950' : 'bg-ink-300',
+                )}
+                style={{
+                  left: `${pct(placement.trueX)}%`,
+                  height: `${length}px`,
+                  transform: `translateX(-50%) rotate(${angle}deg)`,
+                  transition: SLIDE_LEADER,
+                }}
+                aria-hidden="true"
+              />
+              {riser > 0 && (
+                <span
+                  className={cn(
+                    'absolute w-px',
+                    selected ? 'bg-ink-950' : 'bg-ink-300',
+                  )}
+                  style={{
+                    left: `${pct(placement.placedX)}%`,
+                    bottom: `${LEADER_HEIGHT}px`,
+                    height: `${riser}px`,
+                    transform: 'translateX(-50%)',
+                    transition: SLIDE_LEADER,
+                  }}
+                  aria-hidden="true"
+                />
               )}
-              style={{
-                left: `${pct(placement.trueX)}%`,
-                height: `${length}px`,
-                transform: `translateX(-50%) rotate(${angle}deg)`,
-                transition: SLIDE_LEADER,
-              }}
-              aria-hidden="true"
-            />
+            </Fragment>
           )
         })}
 

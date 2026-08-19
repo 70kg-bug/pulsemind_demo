@@ -160,12 +160,6 @@ def _score_tick(bed: sw.Bed, tick: int, at: datetime, seed: int,
         devices=devices, readings_since_admission=tick + 1,
         explanation=(contract.unavailable_explanation()
                      if bed.withhold_explanation else None),
-        # The approved passages behind THIS reading, attached at scoring time
-        # rather than at explanation time. `citations` sits on the assessment in
-        # the contract, not on the explanation, and a clinician can ask what the
-        # guidance says without first waiting 20 s for prose. `contract.assessment`
-        # drops them on a refused reading, which is why there is no branch here.
-        citations=expl.citations_for(record),
     )
     # Only a scored reading may carry a prompt. `insufficient_data` implies no
     # RISK_PROMPT row at all -- absent, not null.
@@ -377,6 +371,12 @@ def warmup(request: WarmupRequest = WarmupRequest()) -> dict:
         rt.on_model_thread(expl.generator)
     except rt.Overloaded:
         raise                       # the 503 + Retry-After handler owns this one
+    except expl.InsufficientVRAM as refusal:
+        # The refusal carries the numbers, because "did not load" sends an
+        # operator to the wrong problem. There is nothing patient-shaped in a
+        # VRAM figure, so this is the one load failure whose text is safe to
+        # return verbatim.
+        raise HTTPException(503, f"the explainer will not fit: {refusal}") from refusal
     except Exception as failure:    # noqa: BLE001
         # A generator that cannot load must not take scoring down with it --
         # `explanation.py` wraps the same call for the same reason. Bare, it

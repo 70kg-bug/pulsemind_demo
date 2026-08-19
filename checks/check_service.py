@@ -127,6 +127,29 @@ if status == 200:
     show("band named in the text matches the stored band", True,
          target["risk_level"] in text, f"({target['risk_level']})")
 
+    # A5 -- the citations belong to the EXPLANATION, and survive the round-trip.
+    #
+    # `use_llm=False` is the template floor, which does not consult the guideline
+    # library: an empty list here is the CORRECT answer, and `generator` is the
+    # only field that says so rather than leaving it read as a shortfall.
+    #
+    # The read-back is the point. Mongoose strict mode drops undeclared keys, so
+    # a field the API returns can still vanish on save -- that has cost a full
+    # verification round before, on `RiskContributor.parameter`.
+    print()
+    show("the explanation names its generator", "template", explained.get("generator"))
+    show("the template floor cites nothing", [], explained.get("citations"))
+    show("the write was actually stored", True, explained.get("stored"))
+
+    status, reloaded = call(NODE, "GET", f"/patient/{patient}")
+    stored_expl = reloaded.get("explanation") or {}
+    show("generator survives the round-trip", "template", stored_expl.get("generator"))
+    show("citations survive as a declared field", True, "citations" in stored_expl,
+         f"({stored_expl.get('citations')!r})")
+    # Moved off the assessment: the passages are a property of the explanation
+    # they grounded, and a field left there with no writer reads as "RAG is dead".
+    show("the assessment carries no citations of its own", False, "citations" in reloaded)
+
 print("\nA1/A2 -- a disposition round-trips")
 prompted = [a for a in scored if (a.get("prompt") or {}).get("status") == "open"]
 if not prompted:

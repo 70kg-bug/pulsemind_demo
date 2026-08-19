@@ -121,13 +121,18 @@ export function warmExplainer(): Promise<{ explainer: string; was_loaded: boolea
   return sendJson('/ward/warmup', {})
 }
 
-/** Switch an input source off, or back on. */
-export function setDeviceOffline(
+/** Switch input sources off, or back on.
+ *
+ *  Takes a LIST because the server's write is read-modify-write on one array:
+ *  three restores as three requests read the same list, saved last-write-wins,
+ *  and exactly one device came back. Each response was individually correct,
+ *  which is why it looked like nothing was wrong. */
+export function setDevicesOffline(
   patientId: string,
-  deviceId: string,
+  deviceIds: string[],
   offline: boolean,
 ): Promise<{ offline_devices: string[] }> {
-  return sendJson(`/patient/${patientId}/device`, { device_id: deviceId, offline })
+  return sendJson(`/patient/${patientId}/device`, { device_ids: deviceIds, offline })
 }
 
 /** Ask the local model to write the explanation. Takes tens of seconds.

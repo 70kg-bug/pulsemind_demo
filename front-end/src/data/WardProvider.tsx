@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Assessment } from '@contract/clinical'
-import { fetchWard, setDeviceOffline, tickWard } from './feed'
+import { fetchWard, setDevicesOffline as setDeviceOffline, tickWard } from './feed'
 import { useWardStream, type WardStream } from '../hooks/useWardStream'
 
 interface WardValue {
@@ -25,6 +25,8 @@ interface WardValue {
   advance: () => Promise<void>
   /** Switch one patient's input source off or on, then re-read. */
   toggleDevice: (patientId: string, deviceId: string) => Promise<void>
+  /** Many devices, one write. Use for anything that touches more than one. */
+  setDevices: (patientId: string, deviceIds: string[], offline: boolean) => Promise<void>
   offlineDeviceIds: Set<string>
   stream: WardStream
   /** Bumped after every successful re-read. Anything holding data fetched
@@ -83,10 +85,21 @@ export function WardProvider({ children }: { children: ReactNode }) {
     async (patientId: string, deviceId: string) => {
       const patient = ward.find((a) => a.patient_id === patientId)
       const device = patient?.devices.find((d) => d.device_id === deviceId)
-      await setDeviceOffline(patientId, deviceId, device?.state !== 'offline')
+      await setDeviceOffline(patientId, [deviceId], device?.state !== 'offline')
       await refresh()
     },
     [ward, refresh],
+  )
+
+  /** Every named device to one state, in ONE write. Firing N single toggles
+   *  concurrently raced the server's read-modify-write and restored one. */
+  const setDevices = useCallback(
+    async (patientId: string, deviceIds: string[], offline: boolean) => {
+      if (deviceIds.length === 0) return
+      await setDeviceOffline(patientId, deviceIds, offline)
+      await refresh()
+    },
+    [refresh],
   )
 
   // Derived, not stored: the board already reports each source's state, and a
@@ -102,9 +115,9 @@ export function WardProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo<WardValue>(
-    () => ({ ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds,
+    () => ({ ward, loading, error, refresh, advance, toggleDevice, setDevices, offlineDeviceIds,
              stream, revision }),
-    [ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds,
+    [ward, loading, error, refresh, advance, toggleDevice, setDevices, offlineDeviceIds,
      stream, revision],
   )
 

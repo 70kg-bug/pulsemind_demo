@@ -364,19 +364,31 @@ const explainPatient = async (req, res) => {
   // was. The caller still gets the real result and can show the failure.
   const wouldDestroy = result.status === 'unavailable'
     && target.explanation?.status === 'generated';
-  if (!wouldDestroy) {
-    await Assessment.updateOne(
+  let stored = !wouldDestroy;
+  if (stored) {
+    const write = await Assessment.updateOne(
       { _id: target._id },
       {
         explanation: {
           status: result.status,
           explanation_text: result.explanation_text,
-          grounding_status: result.grounding_status
+          grounding_status: result.grounding_status,
+          // Stored WITH the text, not beside it. `generator` is what lets the
+          // panel tell "the 7B ran and the library had no approved passage"
+          // apart from "the template does not consult the library" apart from
+          // "nothing has been generated yet" -- three states that all carry an
+          // empty `citations` list.
+          generator: result.generator ?? null,
+          citations: result.citations ?? []
         }
       }
     );
+    // `updateOne` matches nothing if the row was deleted underneath -- a re-seed
+    // lands while a 20 s generation is in flight. Reporting `stored: true` there
+    // is the one thing this field exists to prevent.
+    stored = write.matchedCount > 0;
   }
-  res.json({ ...result, stored: !wouldDestroy });
+  res.json({ ...result, stored });
 };
 
 /** Load the 7B before it is first needed. Writes nothing.
@@ -451,9 +463,12 @@ const reviewPrompt = async (req, res) => {
         disposition,
         note: note || null,
         reviewed_at: reviewedAt,
-        // Null when it adds nothing -- only recorded where the two genuinely differ.
+        // Null only when it adds nothing. Compared for INEQUALITY, not ordering:
+        // a streaming ward runs ahead of the wall clock, an idle one falls
+        // behind it by however long it sat, and the second case is just as
+        // confusing on screen as the first. `>` recorded only half of them.
         ward_time_at_review:
-          wardTime && wardTime.getTime() > reviewedAt.getTime() ? wardTime : null,
+          wardTime && wardTime.getTime() !== reviewedAt.getTime() ? wardTime : null,
         clinician: actor,
         attributed: actor !== null
       }
@@ -464,17 +479,45 @@ const reviewPrompt = async (req, res) => {
   res.json(prompt);
 };
 
-/** Switch an input source off, or back on. The consequence is the point. */
+/** Switch input sources off, or back on. The consequence is the point.
+ *
+ *  Takes a LIST. One request per device raced itself: three chips restored at
+ *  once meant three reads of the same `offline_devices`, three last-write-wins
+ *  saves, and one device actually back -- silently, because each response was
+ *  individually correct. Restoring all of them is one write or it is a lottery.
+ *
+ *  Behind `wardBusy` because this is a read-modify-write on `StayState` and a
+ *  seed deletes and re-upserts that document with a fresh `_id`; a `save()`
+ *  landing in that window matches nothing and throws DocumentNotFoundError.
+ */
 const setDeviceState = async (req, res) => {
+  if (wardBusy) return wardBusyResponse(res);
+  wardBusy = true;
+  try {
+    return await runSetDeviceState(req, res);
+  } finally {
+    wardBusy = false;
+  }
+};
+
+const runSetDeviceState = async (req, res) => {
   const { patientId } = req.params;
-  const { device_id: deviceId, offline } = req.body || {};
-  if (!deviceId) return res.status(400).json({ message: 'device_id required' });
+  const body = req.body || {};
+  // `device_ids` is the shape; `device_id` stays accepted so a single chip is
+  // not a special case at the call site.
+  const ids = body.device_ids ?? (body.device_id ? [body.device_id] : null);
+  const { offline } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ message: 'device_id or a non-empty device_ids required' });
+  }
 
   const state = await StayState.findOne({ patient_id: patientId });
   if (!state) return res.status(404).json({ message: `no stay state for ${patientId}` });
 
   const current = new Set(state.offline_devices);
-  if (offline) current.add(deviceId); else current.delete(deviceId);
+  for (const id of ids) {
+    if (offline) current.add(id); else current.delete(id);
+  }
   state.offline_devices = [...current];
   await state.save();
 

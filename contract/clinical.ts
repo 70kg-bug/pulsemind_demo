@@ -108,6 +108,23 @@ export interface Explanation {
   /** Fixed strings when unavailable — never substitute generated prose. */
   explanation_text: string
   grounding_status: GroundingStatus
+  /**
+   * Which writer produced the text: the model id, `'template'` for the
+   * deterministic floor, or null when nothing was generated. Not decoration —
+   * an empty `citations` list means three different things depending on this
+   * field, and only one of them is a shortfall.
+   */
+  generator: string | null
+  /**
+   * The approved passages the generator was SHOWN, travelling with the text
+   * they grounded. Retrieval happened offline: dense MedCPT with a
+   * cross-encoder over the corpus, human-reviewed and frozen, so a fabricated
+   * citation is structurally impossible rather than merely unlikely.
+   *
+   * Empty is a real answer. The template never consults the library, and 9 of
+   * the 57 keys have no admissible passage.
+   */
+  citations: Citation[]
 }
 
 export interface RiskPrompt {
@@ -179,7 +196,6 @@ export interface ScoredAssessment extends AssessmentBase {
   readings_in_state: number
   contributors: RiskContributor[]
   explanation: Explanation | null
-  citations: Citation[]
   prompt: RiskPrompt | null
   review: ClinicianReview | null
   /** Provenance, so a stored assessment traces to what produced it. */

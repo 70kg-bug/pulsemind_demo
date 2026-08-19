@@ -57,6 +57,9 @@ function rowsFor(xs: number[], need: number, trackWidth: number, labelWidth: num
   const usable = Math.max(trackWidth - labelWidth, 1)
   const forFit = Math.ceil(((xs.length - 1) * need) / usable)
 
+  // ⚠️ `forFit` can exceed MAX_ROWS, and then the run does NOT fit however this
+  // clamp resolves. `placeLabels` narrows the gap for that case; capping here
+  // and doing nothing else is what used to push labels off the left edge.
   return Math.min(MAX_ROWS, Math.max(1, rows, forFit))
 }
 
@@ -116,9 +119,24 @@ function spread(items: Placeable[], gap: number, trackWidth: number, labelWidth:
  * ONE placement pass over every label, in score order, with rows assigned round
  * robin afterwards. Placing each row separately looked reasonable and was not:
  * two rows centred on their own members drift independently, so a label could
- * end up left of one whose mark is further left, and the leader lines crossed.
- * A crossed leader is worse than a crowded one — it points at the wrong patient.
- * Placing globally keeps position monotonic in score, so they cannot cross.
+ * end up left of one whose mark is further left. A crossed leader is worse than
+ * a crowded one — it points at the wrong patient.
+ *
+ * ⚠️ GLOBAL PLACEMENT IS NOT ON ITS OWN ENOUGH, and this file claimed for a
+ * while that it was. Monotonic `placedX` makes the label ENDPOINTS ordered; it
+ * says nothing about the SEGMENTS between mark and label. With the leader drawn
+ * straight to a per-row height, `row = index % rows` cycles the rise 22, 42, 62,
+ * 22 … so two adjacent labels get very different slopes and the lines cross
+ * between the axis and the text — measured on 29% of 200,000 clustered
+ * configurations, while the evenly-spread demo ward never showed it.
+ *
+ * The invariant that actually holds: with `trueX` and `placedX` both
+ * non-decreasing and EVERY leader rising the same height R, the gap between two
+ * leaders is linear in y and non-negative at both ends (`trueX` order at y=0,
+ * `placedX` order at y=R), so it cannot change sign in between. `WardScale`
+ * therefore fans every leader to one height and stacks rows on a vertical riser
+ * above it — verticals sit at distinct `placedX` and live entirely above the
+ * diagonals, so neither can meet the other. Rows are free again.
  */
 export function placeLabels(
   items: Placeable[],
@@ -135,7 +153,18 @@ export function placeLabels(
 
   // Neighbours land on different rows, so they only need `need / rows` between
   // them; labels `rows` apart share a row and are a full `need` apart.
-  const placed = spread(ordered, need / rows, trackWidth, labelWidth)
+  //
+  // NARROWED WHEN THE RUN STILL WILL NOT FIT. `rowsFor` caps at MAX_ROWS, so at
+  // enough beds or a narrow enough track the ideal gap is wider than the track
+  // can hold. `spread`'s clamp then inverts — `reach > trackWidth - reach`, so
+  // `Math.min` wins and the group's left edge goes negative — and the labels
+  // were pushed off the track, measured to −248px, where `xl:overflow-hidden`
+  // clips them outright. Labels touching is a legible compromise; labels not on
+  // screen is not.
+  const fits = ordered.length > 1
+    ? Math.max(trackWidth - labelWidth, 0) / (ordered.length - 1)
+    : Infinity
+  const placed = spread(ordered, Math.min(need / rows, fits), trackWidth, labelWidth)
 
   return {
     rows,

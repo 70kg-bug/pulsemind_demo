@@ -1,17 +1,13 @@
-import { useState } from 'react'
 import { Check, Sparkles } from 'lucide-react'
 import type { Explanation } from '@contract/clinical'
-import { generateExplanation } from '../../data/feed'
-import { useWard } from '../../data/WardProvider'
 
 interface ExplanationPanelProps {
-  /** Null means generation was never attempted, which is a different fact from failure. */
-  explanation: Explanation | null
-  patientId: string
-  /** The reading this panel is showing. Named on the request so the text is
-   *  written back to the row a clinician was reading, not to whichever row is
-   *  newest 20 seconds later. */
-  assessedAt: string
+  /** What to render. Null means generation was never attempted, which is a
+   *  different fact from failure. */
+  shown: Explanation | null
+  generating: boolean
+  failure: string | null
+  onGenerate: () => void
 }
 
 /**
@@ -20,41 +16,15 @@ interface ExplanationPanelProps {
  * Three outcomes that must not look alike: generated and grounded, generated
  * then withheld because grounding failed, and never requested. Nothing is ever
  * generated to fill an absence.
+ *
+ * CONTROLLED, not self-driving. The request state lives in `useExplanationRequest`
+ * one level up, because the guideline-references panel is this panel's SIBLING
+ * and has to fill from the same result on the same click. Owned here, that
+ * result was unreachable from there.
  */
-export function ExplanationPanel({ explanation, patientId, assessedAt }: ExplanationPanelProps) {
-  const { stream } = useWard()
-  const [generated, setGenerated] = useState<Explanation | null>(null)
-  // WHICH reading the local result belongs to. Without it a generated
-  // explanation outlived the reading it described: the ward advances, a new
-  // score and band arrive, and the old prose stays on screen underneath them —
-  // directly above a footer promising a point-in-time rationale for THIS
-  // reading. Remounting on `assessedAt` would also clear it, but it would throw
-  // away an in-flight generation and wipe `failure` within one cadence period.
-  const [generatedFor, setGeneratedFor] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-
-  const shown = generatedFor === assessedAt ? (generated ?? explanation) : explanation
-
-  async function requestExplanation() {
-    setGenerating(true)
-    setFailure(null)
-    try {
-      // Held for the duration. One thread owns the GPU, so generating and
-      // scoring cannot overlap: left running, the next tick stalls for the whole
-      // generation — and behind a cold load that is most of the 90 s the scoring
-      // call is allowed. Warming the explainer first is what removes it.
-      const result = await stream.withPause(
-        () => generateExplanation(patientId, { assessedAt }),
-      )
-      setGenerated(result)
-      setGeneratedFor(assessedAt)
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'the generator did not respond')
-    } finally {
-      setGenerating(false)
-    }
-  }
+export function ExplanationPanel(
+  { shown, generating, failure, onGenerate }: ExplanationPanelProps,
+) {
 
   // One control, three captions. Lifting it out of the never-requested branch is
   // what makes a second reading explainable: the panel used to offer generation
@@ -63,7 +33,7 @@ export function ExplanationPanel({ explanation, patientId, assessedAt }: Explana
   const button = (
     <button
       type="button"
-      onClick={() => void requestExplanation()}
+      onClick={onGenerate}
       disabled={generating}
       className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-2.5 py-1.5 text-2xs font-medium text-ink-950 transition-colors hover:border-ink-950 disabled:cursor-progress disabled:text-ink-500"
     >
