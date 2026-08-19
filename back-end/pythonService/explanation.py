@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+from functools import lru_cache
 
 from pipeline import config as C
 from pipeline.core import explain as E
@@ -25,8 +26,14 @@ from pipeline.core import grounding as G
 _generator = None
 
 
+@lru_cache(maxsize=1)
 def policy() -> E.Policy:
-    """Same construction as s18_explain.policy(), which is the definition."""
+    """Same construction as s18_explain.policy(), which is the definition.
+
+    Cached: the evidence map is 73 KB of JSON and this is now read on the
+    SCORING path, once per bed per tick, not just when someone asks for prose.
+    The map is a build artifact and does not change under a running service.
+    """
     evidence = None
     if C.EVIDENCE_MAP_JSON.exists():
         evidence = json.loads(
@@ -155,3 +162,29 @@ def _result(status: str, text: str, findings, *, generator_name: str,
         "suggested_actions": suggested_actions or [],
         "seconds": round(time.perf_counter() - started, 3),
     }
+
+
+def citations_for(record: dict) -> list[dict]:
+    """The approved passages behind one reading, in the contract's shape.
+
+    These are the SAME passages the generator is shown, so the panel displays
+    what the explanation was grounded against rather than a second, decorative
+    list. `quote` is verbatim by contract -- `grounding.check` compares against
+    that exact string -- so it is passed through untouched and only ever used
+    as the claim, never reformatted.
+
+    Retrieval already happened, offline: s21 ran dense MedCPT retrieval with a
+    cross-encoder over the corpus, a human reviewed every key, and the result
+    was frozen. This is a dict lookup, which is why a fabricated citation is
+    structurally impossible here rather than merely unlikely.
+    """
+    context, _actions = E.select_evidence(record, policy())
+    return [
+        {
+            # Section included when the corpus knows it: a reader checking a
+            # claim needs where in the document, not just which document.
+            "source": f"{c['citation']} · {c['section']}" if c.get("section") else c["citation"],
+            "claim": c["quote"],
+        }
+        for c in context
+    ]

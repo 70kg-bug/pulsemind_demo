@@ -160,6 +160,12 @@ def _score_tick(bed: sw.Bed, tick: int, at: datetime, seed: int,
         devices=devices, readings_since_admission=tick + 1,
         explanation=(contract.unavailable_explanation()
                      if bed.withhold_explanation else None),
+        # The approved passages behind THIS reading, attached at scoring time
+        # rather than at explanation time. `citations` sits on the assessment in
+        # the contract, not on the explanation, and a clinician can ask what the
+        # guidance says without first waiting 20 s for prose. `contract.assessment`
+        # drops them on a refused reading, which is why there is no branch here.
+        citations=expl.citations_for(record),
     )
     # Only a scored reading may carry a prompt. `insufficient_data` implies no
     # RISK_PROMPT row at all -- absent, not null.

@@ -271,8 +271,9 @@ export function PatientDetail() {
                       ))}
                     </ul>
                     <p className="mt-2 border-t border-rule-faint pt-2.5 text-xs text-ink-400">
-                      Retrieved from a fixed approved library — not generated. Prototype uses
-                      sample citations.
+                      Retrieved from a fixed approved library — not generated. The passages
+                      were selected and reviewed before this reading existed, so a citation
+                      here cannot be invented.
                     </p>
                   </>
                 ) : (
