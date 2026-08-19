@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Assessment, ParameterHistoryPoint, ParameterName, PatientContext } from '@contract/clinical'
 import { fetchHistory, fetchParameterHistory } from '../data/feed'
 
@@ -16,17 +16,31 @@ interface Loaded<T> {
   error: string | null
 }
 
-function useFetch<T>(load: () => Promise<T>, deps: unknown[]): Loaded<T> {
+/**
+ * `subject` is what the data is ABOUT, and every caller must pass one. Changing
+ * it clears the previous answer; refetching the SAME subject keeps it on screen
+ * until the new one lands. Optional, it silently disabled clearing for whoever
+ * forgot — `undefined !== undefined` is never true — which is how the SpO2
+ * series came to render under the FiO2 heading.
+ */
+function useFetch<T>(load: () => Promise<T>, deps: unknown[], subject: string): Loaded<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const lastSubject = useRef(subject)
 
   useEffect(() => {
     let current = true
     setLoading(true)
-    // Cleared, not left in place: a screen that renders `data` while `loading`
-    // would show the previous patient's readings under the new patient's name.
-    setData(null)
+    // Cleared when the SUBJECT changes, because a screen that renders `data`
+    // while `loading` shows the previous subject's numbers under the new one's
+    // name. Kept when the same subject merely has a newer reading: blanking on
+    // every tick leaves the one chart showing a band history unreadable for
+    // exactly as long as it is worth watching.
+    if (lastSubject.current !== subject) {
+      lastSubject.current = subject
+      setData(null)
+    }
     load()
       .then((result) => {
         if (current) {
@@ -53,9 +67,17 @@ function useFetch<T>(load: () => Promise<T>, deps: unknown[]): Loaded<T> {
   return { data, loading, error }
 }
 
-/** Recent assessments for one patient, oldest first. */
-export function usePatientHistory(patientId: string, limit = 14) {
-  return useFetch<Assessment[]>(() => fetchHistory(patientId, limit), [patientId, limit])
+/** Recent assessments for one patient, oldest first.
+ *
+ *  `revision` is the ward's, from `useWard()`. Without it the observation strip
+ *  is fetched once on mount and then silently stops agreeing with the board
+ *  beside it. */
+export function usePatientHistory(patientId: string, revision = 0, limit = 14) {
+  return useFetch<Assessment[]>(
+    () => fetchHistory(patientId, limit),
+    [patientId, limit, revision],
+    patientId,
+  )
 }
 
 /** One parameter's charting history, oldest first. */
@@ -67,6 +89,7 @@ export function useParameterHistory(
   return useFetch<ParameterHistoryPoint[]>(
     () => fetchParameterHistory(patientId, parameterName, limit),
     [patientId, parameterName, limit],
+    `${patientId}:${parameterName}`,
   )
 }
 
@@ -78,5 +101,6 @@ export function usePatientContext(patientId: string) {
       return r.json() as Promise<PatientContext>
     }),
     [patientId],
+    patientId,
   )
 }

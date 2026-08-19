@@ -1,7 +1,8 @@
 """PulseMind model service. Scores, bands and explains; stores nothing.
 
     POST /ward/seed        build the ward and backfill its history
-    POST /ward/tick        one more reading per bed
+    POST /ward/tick        one more reading per bed, on the stay's hourly grid
+    POST /warmup           load the 7B ahead of the first explanation
     POST /explain/patient  explain a stored record in plain language (slow)
     GET  /healthz          model, band table and scoring device
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from http import HTTPStatus
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -101,7 +103,15 @@ class BedState(BaseModel):
 class TickRequest(BaseModel):
     model_config = _STRICT
     seed: int = 20260817
-    beds: list[BedState] = Field(..., max_length=64)
+    # At least one: the response reports the ward's clock as the newest reading
+    # across the beds, and there is no such thing for an empty ward.
+    beds: list[BedState] = Field(..., min_length=1, max_length=64)
+
+
+class WarmupRequest(BaseModel):
+    """No fields, but a model all the same -- `extra="forbid"` then rejects a
+    caller who sends options this endpoint would silently ignore."""
+    model_config = _STRICT
 
 
 class ExplainRequest(BaseModel):
@@ -230,6 +240,26 @@ async def readyz() -> JSONResponse:
     )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """ONE ERROR SHAPE (PM-ERR-001): RFC 9457 `application/problem+json`.
+
+    FastAPI's default is `{"detail": ...}` with a plain JSON content type, which
+    left this service answering in two shapes -- the `Overloaded` handler above
+    already did it properly. `detail` survives, so Node's `fromUpstream` reads
+    the same field it always did.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        media_type="application/problem+json",
+        headers=getattr(exc, "headers", None),
+        content={"type": "about:blank",
+                 "title": HTTPStatus(exc.status_code).phrase,
+                 "status": exc.status_code,
+                 "detail": exc.detail},
+    )
+
+
 @app.post("/ward/seed")
 def seed(request: SeedRequest) -> dict:
     """Build the ward and score its backfilled history, oldest reading first.
@@ -271,16 +301,87 @@ def seed(request: SeedRequest) -> dict:
 
 @app.post("/ward/tick")
 def tick(request: TickRequest) -> dict:
-    """One more reading per bed, from the state Node read back out of Mongo."""
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    out = []
+    """One more reading per bed, from the state Node read back out of Mongo.
+
+    The reading time continues each stay's OWN hourly grid rather than the wall
+    clock. `/ward/seed` already walks that grid (`start + TICK * tick`), and both
+    `synthetic_ward.TICK` and the dwell in the band table are denominated in it.
+    Stamping `now()` here made a live tick behave unlike a backfilled one:
+
+    - The latch clock is `observed_at - origin` in minutes, so consecutive readings
+      sat seconds apart while the physiology advanced an hour. Promotion has zero
+      dwell and survived that; `demote_dwell_min = 120` did not, so no band could
+      ever step back down and the recovering bed latched for ever.
+    - Every parameter aged in seconds. `age_minutes` is what the board shows as
+      staleness and what carry-forward is judged on, and it read ~0 on a reading
+      an hour newer than the last.
+    - `_score_tick` derives the stay's start as `at - TICK * tick`, so a
+      wall-clock `at` slid that start -- and `ventilation_start` with it -- an
+      hour further into the past on every reading.
+    """
+    # RESOLVED BEFORE ANY SCORING. No fallback: `_score` subscripts
+    # `state["origin"]` directly, so a stay without one cannot be scored whatever
+    # we do here, and substituting the wall clock would stamp a reading BEHIND
+    # the ones already stored for that bed -- which `getWard` then keeps sorting
+    # above the new one, freezing the bed on screen with nothing logged. Done as
+    # a pre-pass because inside the loop a bad eighth bed costs seven GPU
+    # scorings before the refusal, on every retry.
+    schedule = []
     for bed_state in request.beds:
-        bed = _bed(bed_state.patient_id)
-        step = _score_tick(bed, bed_state.tick + 1, now, request.seed,
+        bed = _bed(bed_state.patient_id)          # 404s here, before any scoring
+        origin = bed_state.stay_state.get("origin")
+        try:
+            # Not just falsy: a malformed non-empty string used to reach
+            # `fromisoformat`, raise, and leave Node reporting "the model service
+            # did not respond" about a service that answered precisely.
+            at = datetime.fromisoformat(origin) + sw.TICK * (bed_state.tick + 1)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                422, f"{bed_state.patient_id}: stay state carries no usable origin "
+                     f"({origin!r}), so its readings cannot be placed on the ward's "
+                     "clock -- re-seed the ward") from None
+        schedule.append((bed, bed_state, at))
+
+    out, times = [], []
+    for bed, bed_state, at in schedule:
+        times.append(at)
+        step = _score_tick(bed, bed_state.tick + 1, at, request.seed,
                            bed_state.stay_state, set(bed_state.offline_devices),
                            bed_state.last_band)
         out.append(step)
-    return {"at": now.isoformat(), "patients": out}
+    # The ward's clock is the NEWEST reading across the beds: per-bed times differ
+    # when one stay started later, and the board compares its own "now" against
+    # the newest of them.
+    return {"at": max(times).isoformat(), "patients": out}
+
+
+@app.post("/warmup")
+def warmup(request: WarmupRequest = WarmupRequest()) -> dict:
+    """Load the 7B now, so the first explanation of a session is not the slow one.
+
+    Goes through the model thread like everything else that touches CUDA, so it
+    queues behind scoring rather than racing it, and it writes nothing: the
+    alternative -- explaining some bed to warm the weights -- leaves a real
+    explanation attached to a reading nobody asked about. Measured cold and warm
+    figures are in `.claude/rules/demo.md`, in one place, once.
+    """
+    if expl.generator_loaded():
+        return {"explainer": "loaded", "was_loaded": True}
+    try:
+        rt.on_model_thread(expl.generator)
+    except rt.Overloaded:
+        raise                       # the 503 + Retry-After handler owns this one
+    except Exception as failure:    # noqa: BLE001
+        # A generator that cannot load must not take scoring down with it --
+        # `explanation.py` wraps the same call for the same reason. Bare, it
+        # escapes as text/plain and Node reports "did not respond", which sends
+        # an operator to restart a service that answered correctly.
+        raise HTTPException(
+            503, f"the explainer did not load: {type(failure).__name__}") from failure
+    # Observed, not asserted: `generator()` returning without loading would make
+    # a hard-coded "loaded" a false record.
+    return {"explainer": "loaded" if expl.generator_loaded() else "unavailable",
+            "was_loaded": False}
 
 
 @app.post("/explain/patient")

@@ -6,7 +6,7 @@ import { isScored } from '@contract/clinical'
 import { SUFFICIENCY_FLOOR, reviewPrompt, toObservations } from '../data/feed'
 import { useAssessment, useWard } from '../data/WardProvider'
 import { bandMeaning } from '../data/bands'
-import { useClock } from '../hooks/useClock'
+import { useWardClock } from '../hooks/useWardClock'
 import { usePatientHistory } from '../hooks/useApi'
 import {
   BAND_STATE_LABEL,
@@ -28,15 +28,15 @@ import { Panel } from '../components/ui/Panel'
 
 export function PatientDetail() {
   const { patientId = '' } = useParams()
-  const now = useClock()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
 
-  const { refresh } = useWard()
+  const { refresh, ward, revision } = useWard()
+  const { now } = useWardClock(ward)
   const assessment = useAssessment(patientId)
-  const { data: history } = usePatientHistory(patientId)
+  const { data: history } = usePatientHistory(patientId, revision)
 
   if (!assessment) {
     return (
@@ -246,6 +246,7 @@ export function PatientDetail() {
                   <ExplanationPanel
                     explanation={scored.explanation}
                     patientId={scored.patient_id}
+                    assessedAt={scored.assessed_at}
                   />
                 </div>
               </Panel>

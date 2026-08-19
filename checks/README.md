@@ -58,7 +58,7 @@ inputs were identical throughout, because the deciding share tracks where the mo
 attribution landed rather than how many inputs were missing.
 
 **`check_llm.py`** — the 7B path end to end: grounding passed, and the stored band, dwell
-and score are unchanged by explaining. Cold load is ~40 s, warm ~13 s, and the text is
+and score are unchanged by explaining. Cold load is ~40 s through the service, and the text is
 byte-identical across runs by design.
 
 ⚠️ **This leaves ~4.7 GB of VRAM occupied until you stop the model service.** The model is

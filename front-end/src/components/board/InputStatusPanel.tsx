@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { DeviceState, InputDevice } from '@contract/clinical'
 import { useWard } from '../../data/WardProvider'
 import { cn } from '../../lib/cn'
@@ -31,6 +33,13 @@ const STATE_LABEL: Record<DeviceState, string> = {
 export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelProps) {
   const { toggleDevice } = useWard()
   const offline = devices.filter((device) => device.state === 'offline')
+  // Collapsed by default, and it STAYS where you put it. Not a hover reveal and
+  // nothing that closes itself: every glance at this screen is a resumption, so
+  // content that appears and disappears on its own is content a returning nurse
+  // cannot rely on. Open whenever a source is already dropped, because then the
+  // controls explain something on screen rather than merely offering to.
+  const [showControls, setShowControls] = useState(false)
+  const open = showControls || offline.length > 0
 
   return (
     <Panel className="p-4">
@@ -72,7 +81,19 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
 
       <div className="mt-3 border-t border-rule pt-3">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="field-label">Simulate source loss</p>
+          <button
+            type="button"
+            onClick={() => setShowControls((was) => !was)}
+            aria-expanded={open}
+            className="field-label inline-flex items-center gap-1 text-ink-500 transition-colors hover:text-ink-950"
+          >
+            <ChevronRight
+              size={11}
+              strokeWidth={2.5}
+              className={cn('transition-transform', open && 'rotate-90')}
+            />
+            Simulate source loss
+          </button>
           {offline.length > 0 && (
             <button
               type="button"
@@ -84,6 +105,8 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
           )}
         </div>
 
+        {open && (
+        <>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {devices.map((device) => (
             <button
@@ -109,6 +132,8 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
           sufficiency floor no score is published and the patient leaves the ranked board.
           The source-to-parameter mapping is a prototype assumption, not a published one.
         </p>
+        </>
+        )}
       </div>
     </Panel>
   )

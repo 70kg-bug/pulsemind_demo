@@ -9,6 +9,7 @@ import {
 } from 'react'
 import type { Assessment } from '@contract/clinical'
 import { fetchWard, setDeviceOffline, tickWard } from './feed'
+import { useWardStream, type WardStream } from '../hooks/useWardStream'
 
 interface WardValue {
   ward: Assessment[]
@@ -16,11 +17,20 @@ interface WardValue {
   error: string | null
   /** Re-read the board from the API. */
   refresh: () => Promise<void>
-  /** Advance every bed by one reading, then re-read. */
+  /** Advance every bed by one reading, then re-read. REJECTS if the tick fails:
+   *  `refresh` swallows its own failures and leaves the board readable, but the
+   *  stream driver needs this one to reach it, or the loop keeps firing against
+   *  a ward that stopped advancing. Every caller must handle the rejection. */
   advance: () => Promise<void>
   /** Switch one patient's input source off or on, then re-read. */
   toggleDevice: (patientId: string, deviceId: string) => Promise<void>
   offlineDeviceIds: Set<string>
+  stream: WardStream
+  /** Bumped after every successful re-read. Anything holding data fetched
+   *  alongside the ward — a patient's history, a parameter series — puts this in
+   *  its dependencies so it reloads too. Keyed to the stream's tick count it
+   *  missed device toggles and re-seeds, which change the ward just as much. */
+  revision: number
 }
 
 const WardContext = createContext<WardValue | null>(null)
@@ -38,9 +48,12 @@ export function WardProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [revision, setRevision] = useState(0)
+
   const refresh = useCallback(async () => {
     try {
       setWard(await fetchWard())
+      setRevision((n) => n + 1)
       setError(null)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'the ward could not be loaded')
@@ -57,6 +70,8 @@ export function WardProvider({ children }: { children: ReactNode }) {
     await tickWard()
     await refresh()
   }, [refresh])
+
+  const stream = useWardStream(advance)
 
   const toggleDevice = useCallback(
     async (patientId: string, deviceId: string) => {
@@ -81,8 +96,10 @@ export function WardProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo<WardValue>(
-    () => ({ ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds }),
-    [ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds],
+    () => ({ ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds,
+             stream, revision }),
+    [ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds,
+     stream, revision],
   )
 
   return <WardContext.Provider value={value}>{children}</WardContext.Provider>

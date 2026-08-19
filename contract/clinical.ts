@@ -121,7 +121,15 @@ export interface RiskPrompt {
 export interface ClinicianReview {
   disposition: Disposition
   note: string | null
+  /** The real instant the clinician acted. Wall clock, always. */
   reviewed_at: string
+  /**
+   * What the ward's clock read at that moment, when it differs. A simulated
+   * tick advances the ward an hour, so a disposition can be recorded hours
+   * "before" the prompt it answers. Kept as a separate fact: putting the ward's
+   * time into `reviewed_at` would record an instant at which nothing happened.
+   */
+  ward_time_at_review: string | null
   /**
    * The authenticated principal, or null when there is none. Never supplied by
    * the caller — a disposition that names whoever asked for it is not an audit

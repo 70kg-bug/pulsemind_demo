@@ -1,6 +1,8 @@
 import { Link } from 'react-router'
 import { Moon, Sun } from 'lucide-react'
 import { useClock } from '../../hooks/useClock'
+import { useWard } from '../../data/WardProvider'
+import { useWardClock } from '../../hooks/useWardClock'
 import { useTheme } from '../../hooks/useTheme'
 import { formatClock, formatDate } from '../../lib/format'
 
@@ -13,7 +15,13 @@ import { formatClock, formatDate } from '../../lib/format'
  * product cannot be seen, or screenshotted, without it.
  */
 export function AppHeader() {
+  const { ward } = useWard()
+  // The big clock stays REAL time. Bound to the ward's clock it stopped moving
+  // between ticks — a frozen second-hand beside a green "Receiving" dot, which
+  // is exactly the fault signature this header is built to avoid. The ward's own
+  // clock gets its own chip instead, so the two are legible as two things.
   const now = useClock()
+  const { now: wardNow, simulated } = useWardClock(ward)
   const [theme, toggleTheme] = useTheme()
 
   return (
@@ -39,6 +47,21 @@ export function AppHeader() {
         </div>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-4">
+          {/* No seconds: the ward steps an hour at a time, so a seconds field here
+              would be a frozen one sitting beside a live one. Hidden below md —
+              the row is already at its width budget, and this is the only element
+              in it that appears mid-session. */}
+          {simulated && (
+            <span className="hidden shrink-0 rounded-[2px] border border-chrome-rule px-2 py-[3px] font-mono text-2xs uppercase tracking-[0.07em] text-chrome-ink-dim md:inline">
+              Ward {formatClock(wardNow, false)}
+              {/* A demo of ~26 ticks crosses midnight, and time-of-day alone then
+                  reads EARLIER than the wall clock beside it. Measured: ward
+                  12:19 against a real 12:25, a full day apart. */}
+              {wardNow.getDate() !== now.getDate()
+                && `+${Math.round((wardNow.getTime() - now.getTime()) / 86_400_000) || 1}d`}
+              {' · 1 tick = 1 h'}
+            </span>
+          )}
           <span className="hidden font-mono text-2xs uppercase tracking-[0.05em] text-chrome-ink-dim lg:inline">
             {formatDate(now)} · device local time
           </span>
