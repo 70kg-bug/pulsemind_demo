@@ -4,7 +4,7 @@ const app = express();
 const path = require('path');
 const cors = require('cors');
 const corsOptions = require('./config/corsOptions');
-const { logger } = require('./middleware/logEvents');
+const { requestContext } = require('./middleware/requestContext');
 const errorHandler = require('./middleware/errorHandler');
 // const verifyJWT = require('./middleware/verifyJWT');
 const cookieParser = require('cookie-parser');
@@ -17,8 +17,10 @@ mongoose.set('strictQuery', false);
 // Connect to MongoDB
 connectDB();
 
-// custom middleware logger
-app.use(logger);
+// One id per request, carried to the model service and back, and a JSON access
+// log that records the matched ROUTE rather than the URL -- our URLs contain
+// patient identifiers and this is the only place they would reach disk.
+app.use(requestContext);
 
 // Handle options credentials check - before CORS!
 // and fetch cookies credentials requirement
@@ -36,18 +38,15 @@ app.use(express.json());
 //middleware for cookies
 app.use(cookieParser());
 
-//serve static files
-app.use('/', express.static(path.join(__dirname, '/public')));
-
-// routes
-// app.use('/', require('./routes/root'));
-// app.use('/register', require('./routes/register'));
-// app.use('/auth', require('./routes/auth'));
-// app.use('/refresh', require('./routes/refresh'));
-// app.use('/logout', require('./routes/logout'));
-
+// No auth guard is mounted. `middleware/verifyJWT` and `verifyRoles` are kept
+// and deliberately left unmounted: SR001 and SR005 require RBAC before a
+// clinician sees a prompt, and an unmounted guard is visible here where someone
+// reading the routes will find it. A guard that is present but permissive is not.
 // app.use(verifyJWT);
-app.use('/patient', require('./routes/api/patient'));
+
+// The whole API. The dashboard reads everything through here; scoring happens in
+// the model service and this layer stores what it returns.
+app.use('/api', require('./routes/api/assessment'));
 
 app.all('*', (req, res) => {
     res.status(404);
@@ -61,6 +60,12 @@ app.all('*', (req, res) => {
 });
 
 app.use(errorHandler);
+
+// Backstop. Node exits the process on an unhandled rejection, so one bad
+// request in an unwrapped handler takes every bed off the board.
+process.on('unhandledRejection', (reason) => {
+    console.error('unhandled rejection:', reason);
+});
 
 mongoose.connection.once('open', () => {
     console.log('Connected to MongoDB');

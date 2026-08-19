@@ -1,0 +1,18 @@
+# Python bytecode from the model service
+__pycache__/
+*.pyc
+
+# Secrets. back-end/.gitignore also covers this; belt and braces, because this
+# repository is public and the connection string it holds is live.
+.env
+.env.local
+
+# Build output
+dist/
+node_modules/
+
+# No CSV is ever committed here. MIMIC-IV is credentialed under a PhysioNet DUA
+# and this repository is public. Blanket rather than targeted: the ward is
+# manufactured, so any CSV appearing here is either a mistake or a breach.
+# `checks/secrets_gate.py` enforces the same rule against tracked files.
+*.csv

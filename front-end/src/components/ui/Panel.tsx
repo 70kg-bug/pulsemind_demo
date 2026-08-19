@@ -11,12 +11,8 @@ interface PanelProps {
 }
 
 /**
- * A ruled region.
- *
- * There is no card here. `--surface` is identical to `--page`, so this draws a boundary
- * and nothing else — no fill, no shadow, no elevation. The previous version painted a
- * white card on a light grey page, and that one luminance step was most of what made
- * the product look like every other scaffolded dashboard.
+ * A ruled region. `--surface` equals `--page`, so a panel is a boundary and
+ * never a fill: no card, no shadow, no elevation.
  */
 export function Panel({ children, className, sunken = false, dashed = false }: PanelProps) {
   return (

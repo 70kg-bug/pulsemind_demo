@@ -1,4 +1,4 @@
-import type { DeviceState, InputDevice } from '../../types/clinical'
+import type { DeviceState, InputDevice } from '@contract/clinical'
 import { useWard } from '../../data/WardProvider'
 import { cn } from '../../lib/cn'
 import { formatAgo, minutesSince } from '../../lib/format'
@@ -8,6 +8,8 @@ import { Panel } from '../ui/Panel'
 interface InputStatusPanelProps {
   devices: InputDevice[]
   now: Date
+  /** Sources belong to a bed, so switching one off is a per-patient request. */
+  patientId: string
 }
 
 const STATE_LABEL: Record<DeviceState, string> = {
@@ -20,20 +22,15 @@ const STATE_LABEL: Record<DeviceState, string> = {
 /**
  * Where the data is coming from.
  *
- * This is connection health, which is a different thing from the model's
- * data-sufficiency measure — a source can be streaming perfectly while most of the
- * parameters it does not carry are still population defaults.
+ * Connection health, which is not the model's data-sufficiency measure: a source
+ * can stream perfectly while the parameters it does not carry stay defaulted.
  *
- * The signal counters are live: they read a real timestamp against the shared clock and
- * genuinely climb.
- *
- * The simulation control is deliberately fenced off below the device list rather than
- * sitting inline beside "Hamilton C6 · VNT-04". PulseMind sends nothing to these
- * sources, and a switch rendered next to a real make and model would contradict that in
- * a screenshot.
+ * The simulation control is fenced off below the device list rather than sitting
+ * beside a real make and model. PulseMind writes nothing to these sources.
  */
-export function InputStatusPanel({ devices, now }: InputStatusPanelProps) {
-  const { offlineDeviceIds, toggleDevice, resetDevices } = useWard()
+export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelProps) {
+  const { toggleDevice } = useWard()
+  const offline = devices.filter((device) => device.state === 'offline')
 
   return (
     <Panel className="p-4">
@@ -76,10 +73,10 @@ export function InputStatusPanel({ devices, now }: InputStatusPanelProps) {
       <div className="mt-3 border-t border-rule pt-3">
         <div className="flex items-baseline justify-between gap-2">
           <p className="field-label">Simulate source loss</p>
-          {offlineDeviceIds.size > 0 && (
+          {offline.length > 0 && (
             <button
               type="button"
-              onClick={resetDevices}
+              onClick={() => offline.forEach((device) => void toggleDevice(patientId, device.device_id))}
               className="text-2xs text-accent underline underline-offset-2"
             >
               Restore all
@@ -92,7 +89,7 @@ export function InputStatusPanel({ devices, now }: InputStatusPanelProps) {
             <button
               key={device.device_id}
               type="button"
-              onClick={() => toggleDevice(device.device_id)}
+              onClick={() => void toggleDevice(patientId, device.device_id)}
               aria-pressed={device.state === 'offline'}
               className={cn(
                 'rounded-[2px] border px-2 py-1 text-2xs transition-colors',

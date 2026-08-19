@@ -13,14 +13,9 @@ interface SectionHeadingProps {
 /**
  * A region heading.
  *
- * This replaces the tracked-uppercase eyebrow that previously labelled every region.
- * That device had three problems at once: it was used around forty times, which made
- * tracked uppercase the dominant texture of the whole product; it was set in an ink
- * that failed AA; and it rendered a paragraph, so eight labelled regions on the patient
- * screen were invisible to the document outline.
- *
- * Sentence case, sans, and a real heading element. Small tracked labels still exist —
- * `.field-label` — but only for labelling a value, never a region.
+ * A real heading element: eight labelled regions were previously invisible to
+ * the document outline, and the styling failed AA. Sentence case. `.field-label`
+ * labels a value, never a region.
  */
 export function SectionHeading({
   children,

@@ -1,4 +1,4 @@
-import type { RiskBand } from '../../types/clinical'
+import type { RiskBand } from '@contract/clinical'
 import { BAND_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { SegmentMeter } from './SegmentMeter'
@@ -13,13 +13,9 @@ interface BandTagProps {
 /**
  * The band, named and tinted.
  *
- * The text is achromatic on a tinted ground rather than coloured text on white. Two
- * reasons: display guidance asks that either foreground or background be achromatic,
- * and a coloured alphanumeric string needs to be noticeably larger before its colour
- * can be reliably discriminated. A tint carries colour as area, which has no such floor.
- *
- * The band word is always spelled out, and the segment meter repeats the ordering
- * without colour, so nothing here depends on hue alone.
+ * Achromatic text on a tinted ground, and the band word is always spelled out:
+ * hue on text this small cannot be reliably discriminated. The meter repeats the
+ * same order without relying on colour at all.
  */
 export function BandTag({ band, size = 'sm', className }: BandTagProps) {
   const { tint, edge } = BAND_STYLES[band]

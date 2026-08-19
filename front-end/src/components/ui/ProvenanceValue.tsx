@@ -1,4 +1,4 @@
-import type { InputSource } from '../../types/clinical'
+import type { InputSource } from '@contract/clinical'
 import { PROVENANCE_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatValue } from '../../lib/format'
@@ -22,17 +22,12 @@ const SIZE_CLASSES = {
 /**
  * A parameter value and where it came from, as one inseparable unit.
  *
- * Four of the eleven parameters are majority cohort default — end-tidal CO₂ is
- * substituted with a population value in 82.6% of readings. Rendering a number
- * without its source therefore states a cohort statistic in a clinical voice, which
- * is the single easiest way for this product to mislead someone.
+ * A population default is prefixed with the approximation sign, because a bare
+ * numeral reads as a measurement of this patient: etCO2 is substituted in 82.6%
+ * of readings, and 4 of the 11 parameters are majority cohort default.
  *
- * A cohort default is prefixed `≈`. That is literally what it is — an approximation
- * drawn from a population, not a measurement of the patient in front of you — and
- * unlike colour it survives greyscale, colour-vision deficiency and a photocopy.
- *
- * Staleness is never encoded as fading. A faded value reads as disabled, and a stale
- * CRITICAL reading is not less important than a fresh one.
+ * Staleness is disclosed in words, never encoded as fading -- a dimmed number is
+ * still read as a number.
  */
 export function ProvenanceValue({
   value,
@@ -63,7 +58,7 @@ export function ProvenanceValue({
       )}
       {/* Spoken form, so a screen reader never hears a bare number. */}
       <span className="sr-only">
-        {source === 'cohort_default'
+        {source === 'population_reference'
           ? `approximately ${formatted}, population default, not measured on this patient`
           : `${formatted}, ${label.toLowerCase()}`}
       </span>

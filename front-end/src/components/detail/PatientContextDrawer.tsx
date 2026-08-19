@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
-import type { InputDevice } from '../../types/clinical'
-import { getPatientContext } from '../../data/feed'
+import type { Comorbidity, InputDevice } from '@contract/clinical'
+import { usePatientContext } from '../../hooks/useApi'
 import { cn } from '../../lib/cn'
 import { SectionHeading } from '../ui/SectionHeading'
 
@@ -38,7 +38,7 @@ export function PatientContextDrawer({
     return () => document.removeEventListener('keydown', handleKey)
   }, [open, onClose])
 
-  const context = getPatientContext(patientId)
+  const { data: context } = usePatientContext(patientId)
   if (!context) return null
 
   const sections: Array<[string, Array<[string, string]>]> = [
@@ -120,7 +120,7 @@ export function PatientContextDrawer({
             <SectionHeading className="mb-1">Medical history</SectionHeading>
             {context.comorbidities.length > 0 ? (
               <ul>
-                {context.comorbidities.map((comorbidity) => (
+                {context.comorbidities.map((comorbidity: Comorbidity) => (
                   <li
                     key={comorbidity.icd_code}
                     className="flex items-baseline justify-between gap-3 border-t border-rule-faint py-2"

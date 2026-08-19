@@ -1,20 +1,63 @@
-# "Node JS Tutorial Series - MongoDB with Mongoose: Async CRUD"
+# PulseMind demo API
 
-✅ [Check out my YouTube Channel with all of my tutorials](https://www.youtube.com/DaveGrayTeachesCode).
+Express + Mongoose in front of MongoDB Atlas, and a FastAPI service in
+`pythonService/` that owns the model. The dashboard talks only to this layer.
 
-[<img src="https://cdn.gomix.com/2bdfb3f8-05ef-4035-a06e-2043962a3a13%2Fremix-button.svg" width="163px" />](https://glitch.com/edit/#!/import/github/gitdagray/mongo_async_crud)
+```
+front-end (Vite)  ->  this API :3500  ->  MongoDB Atlas
+                          |
+                          +---------->  pythonService :8000  ->  XGBoost + 7B
+```
 
-**Deploy by clicking the button above**
-_Remember to add your .env variables in the deployed version_
+**This layer stores; the model service scores.** Reads never reach the model service —
+everything the board shows comes out of Mongo, which is what makes the history durable and
+a restart harmless. Only `/api/ward/seed`, `/api/ward/tick` and `/api/patient/:id/explain`
+cross the boundary.
 
-**Description:**
+Mongo is not a cache. Each stored reading carries the band the hysteresis machine
+*published* at the time, which is not a function of that reading's score and cannot be
+recomputed later.
 
-This repository shares the code applied during the Youtube tutorial. The tutorial is part of a [Node.js & Express for Beginners Playlist](https://www.youtube.com/playlist?list=PL0Zuz27SZ-6PFkIxaJ6Xx_X46avTM1aYw) on my channel.  
+## Running it
 
-[YouTube Tutorial](https://youtu.be/AWlLhRQJvtw) for this repository.
+```powershell
+# 1  the model service, from pulsemind_demo/  (needs the GPU)
+$env:PYTHONPATH="..\bki"
+..\.venv\Scripts\python.exe -m uvicorn app:app --app-dir back-end/pythonService
 
-I suggest completing my [8 hour JavaScript course tutorial video](https://youtu.be/EfAl9bwzVZk) if you are new to Javascript.
+# 2  this API, from back-end/   (needs .env -- copy .env.example)
+node server.js
 
-### Academic Honesty
+# 3  the dashboard, from front-end/
+pnpm dev
+```
 
-**DO NOT COPY FOR AN ASSIGNMENT** - Avoid plagiargism and adhere to the spirit of this [Academic Honesty Policy](https://www.freecodecamp.org/news/academic-honesty-policy/).
+The board is empty until `POST /api/ward/seed`.
+
+## Endpoints
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/ward` | every bed's latest assessment |
+| POST | `/api/ward/seed` | build the ward, backfill 24 hours of scored history |
+| POST | `/api/ward/tick` | advance every bed by one reading |
+| GET | `/api/patient/:id` | one patient's current assessment |
+| GET | `/api/patient/:id/history` | recent assessments, oldest first |
+| GET | `/api/patient/:id/context` | borrowed demographics and comorbidities |
+| GET | `/api/patient/:id/parameter/:name` | one parameter's charting history |
+| POST | `/api/patient/:id/explain` | generate the explanation (slow; `use_llm: false` for the template) |
+| POST | `/api/patient/:id/device` | switch an input source off or on |
+| POST | `/api/prompt/:id/review` | record a clinician's disposition |
+
+## No auth
+
+None is mounted. `middleware/verifyJWT` and `verifyRoles` are kept and deliberately left
+unmounted — SR001 and SR005 require RBAC before a clinician sees a prompt, and its absence
+is a listed blocker before any pilot. An unmounted guard is visible in the route file; a
+permissive one is not.
+
+## Data
+
+Nothing here is patient data. The eight-bed ward in `pythonService/synthetic_ward.py` is
+manufactured, and no MIMIC-IV or other credentialed data may enter this repository.
+`.env` holds a live connection string and is gitignored twice over.

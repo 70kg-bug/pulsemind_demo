@@ -29,11 +29,14 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
 
 export function PatientOverviewBoard() {
   const now = useClock()
-  const { ward } = useWard()
+  const { ward, loading, error } = useWard()
 
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [selectedId, setSelectedId] = useState(ward[0].patient_id)
+  // Null until a bed exists. The ward arrives over the network, so the first
+  // render has none — reading `ward[0]` here was safe against a fixture and is
+  // not against a fetch.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const visible = useMemo(
     () => ward.filter((assessment) => matchesQuery(assessment, query)),
@@ -49,6 +52,33 @@ export function PatientOverviewBoard() {
   const rankedRows = filter === 'awaiting' ? ranked.filter(hasOpenPrompt) : ranked
 
   const selected = ward.find((assessment) => assessment.patient_id === selectedId) ?? ward[0]
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-[1600px] px-4 py-10 sm:px-6">
+        <p className="text-2xs text-ink-500">Loading the ward…</p>
+      </div>
+    )
+  }
+
+  // A board with no beds is a real state, not an error: the ward has not been
+  // seeded. Saying which is more use than an empty screen.
+  if (error || ward.length === 0) {
+    return (
+      <div className="mx-auto max-w-[1600px] px-4 py-10 sm:px-6">
+        <Panel dashed sunken className="max-w-[60ch] px-4 py-4">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-500">
+            {error ? 'The ward could not be loaded' : 'No patients on the board'}
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-ink-700">
+            {error
+              ? error
+              : 'Nothing has been scored yet. Seed the ward with POST /api/ward/seed.'}
+          </p>
+        </Panel>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
@@ -74,7 +104,12 @@ export function PatientOverviewBoard() {
         >
           Respiratory-risk scale
         </SectionHeading>
-        <WardScale patients={ranked} selectedId={selectedId} onSelect={setSelectedId} />
+        {/* Past the loading guard the ward is non-empty, so `selected` exists. */}
+        <WardScale
+          patients={ranked}
+          selectedId={selected.patient_id}
+          onSelect={setSelectedId}
+        />
       </div>
 
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
@@ -171,7 +206,11 @@ export function PatientOverviewBoard() {
 
         <aside className="flex w-full shrink-0 flex-col gap-4 xl:w-[23rem]">
           <SelectedPatientPanel assessment={selected} now={now} />
-          <InputStatusPanel devices={selected.devices} now={now} />
+          <InputStatusPanel
+            devices={selected.devices}
+            now={now}
+            patientId={selected.patient_id}
+          />
         </aside>
       </div>
     </div>

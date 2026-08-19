@@ -23,23 +23,25 @@ pnpm type-check
 
 ## Layout
 
+The data contract is **not** in here. It lives at `../contract/clinical.ts`, aliased
+`@contract`, because this app is scheduled to be replaced and the contract has to outlive it.
+
 ```
 src/
-  types/clinical.ts     the frontend data contract, as types
   data/
-    feed.ts             the ONLY boundary between screens and the data source
-    mockFeed.ts         simulated ward — eight patients covering every contract state
+    feed.ts             the ONLY boundary between screens and the API
+    WardProvider.tsx    holds the ward; every selector in feed.ts reads it synchronously
     bands.ts            band table and calibrated cut points
     parameters.ts       the eleven frozen parameters
-    history.ts          simulated assessment and charting history
   lib/                  formatting, class merging, band and provenance style maps
-  hooks/                useClock
+  hooks/                useApi · useClock · useTheme
   components/           ui · charts · board · detail · chrome
   screens/              one per route
 ```
 
-`src/data/feed.ts` is the seam. Replacing the mock with a real transport is a change to
-that one file; no component imports `mockFeed` directly.
+`src/data/feed.ts` is the seam, and it now reads a live API — `fetch('/api/...')`, proxied
+to the Node service. It was a fixture module once; the swap touched that one file and no
+component changed, which is what the seam is for.
 
 ## Before changing anything visual
 
@@ -50,13 +52,21 @@ provenance travelling with every value it belongs to.
 
 ## Deploying
 
+⚠️ **A deployed build has no backend.** The board is served entirely from the Node API,
+which talks to MongoDB and to the local model service — and the model service holds a
+7 B language model and a GPU-pinned booster, so it runs on a workstation, not on Vercel.
+A static deploy renders the shell and then shows the error state on every fetch. That is
+the intended behaviour for now; the demo is **local-only**.
+
 `vercel.json` configures a static SPA deploy. Vercel needs no dashboard settings beyond
 connecting the repo.
 
 The routing rewrite is the load-bearing part: the app uses `BrowserRouter`, so without it
 a direct load or refresh of `/patient/PM-204` returns 404. `/assets/*` is deliberately
 excluded from the rewrite so a missing chunk 404s rather than returning `index.html`
-with a 200.
+with a 200 — and `/api/*` is excluded for the same reason. Rewriting an API call to
+`index.html` returns HTML with a 200, `.json()` then throws on `<`, and the board reads
+as broken rather than as backendless.
 
 Because `pnpm build` runs `tsc --noEmit` first, **a type error fails the deploy** rather
 than shipping.
@@ -69,8 +79,3 @@ ever meant to be public.
 
 All data is simulated. No MIMIC-IV or other credentialed data appears in this repo, and
 none may be added to it.
-
-## `legacy/`
-
-The original vanilla HTML/CSS/JS demo, kept for reference during the port. It is not
-built or served.

@@ -1,18 +1,11 @@
 /**
- * The eleven respiratory parameters. This set is frozen by the data dictionary.
- *
- * `cohortDefaultRate` is how often the parameter is substituted with a population value
- * across the training cohort. Four of these are measured figures from the data dictionary
- * §6.2 and are marked below; the rest are prototype placeholders, because the dictionary
- * only publishes the four that are majority-defaulted.
- *
- * Four of eleven parameters are majority cohort default. That is the reason provenance
- * travels with every value in this UI rather than sitting behind a tooltip.
+ * The eleven respiratory parameters, frozen by the data dictionary section 6.2.
+ * Four `cohortDefaultRate` values are measured; the rest are placeholders.
  */
 
-import type { ParameterName } from '../types/clinical'
+import type { ParameterName } from '@contract/clinical'
 
-export type ParameterGroup =
+type ParameterGroup =
   | 'Oxygenation'
   | 'Airway pressure & flow'
   | 'Ventilation'
@@ -188,8 +181,4 @@ export function parameterDefinition(name: ParameterName): ParameterDefinition {
     throw new Error(`Unknown parameter: ${name}`)
   }
   return definition
-}
-
-export function parametersInGroup(group: ParameterGroup): ParameterDefinition[] {
-  return PARAMETERS.filter((parameter) => parameter.group === group)
 }

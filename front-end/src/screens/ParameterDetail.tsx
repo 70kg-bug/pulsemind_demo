@@ -1,11 +1,10 @@
 import { Link, useParams } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
-import type { ParameterName } from '../types/clinical'
-import { isScored } from '../types/clinical'
-import { getParameterHistory } from '../data/feed'
+import type { ParameterName } from '@contract/clinical'
+import { isScored } from '@contract/clinical'
+import { useParameterHistory } from '../hooks/useApi'
 import { useAssessment } from '../data/WardProvider'
 import { PARAMETERS } from '../data/parameters'
-import { useClock } from '../hooks/useClock'
 import { PROVENANCE_STYLES } from '../lib/bandStyles'
 import { cn } from '../lib/cn'
 import { formatAge, formatPercent, formatValue } from '../lib/format'
@@ -16,12 +15,21 @@ import { ProvenanceValue } from '../components/ui/ProvenanceValue'
 
 export function ParameterDetail() {
   const { patientId = '', parameterName = '' } = useParams()
-  const now = useClock()
 
   const assessment = useAssessment(patientId)
   const definition = PARAMETERS.find((parameter) => parameter.name === parameterName)
 
-  if (!assessment || !definition) {
+  // Before the early return, not after. On a deep link the ward has not loaded
+  // yet, so `assessment` is undefined on the first render and defined on the
+  // next -- a hook below the guard is called a different number of times each
+  // time, which React treats as a fatal error. Empty until the request lands;
+  // the hook reports `null` before the first response, so a destructuring
+  // default would not cover it.
+  const loaded = useParameterHistory(patientId, parameterName as ParameterName)
+  const history = loaded.data ?? []
+
+  const reading = assessment?.parameters.find((p) => p.parameter_name === parameterName)
+  if (!assessment || !definition || !reading) {
     return (
       <div className="mx-auto max-w-[1600px] px-6 py-10">
         <p className="text-2xs text-ink-500">No such parameter.</p>
@@ -32,15 +40,11 @@ export function ParameterDetail() {
     )
   }
 
-  const reading = assessment.parameters.find((p) => p.parameter_name === definition.name)!
-  const history = getParameterHistory(assessment, definition.name as ParameterName, now)
   const provenance = PROVENANCE_STYLES[reading.source]
 
   const isScoreFactor =
     isScored(assessment) &&
-    assessment.contributors.some(
-      (contributor) => contributor.feature_name.toLowerCase() === definition.description.toLowerCase(),
-    )
+    assessment.contributors.some((contributor) => contributor.parameter === definition.name)
 
   const measuredCount = history.filter((point) => point.source === 'measured').length
 
@@ -108,7 +112,7 @@ export function ParameterDetail() {
 
           <Panel className="p-4">
             <SectionHeading>Last measured</SectionHeading>
-            {reading.source === 'cohort_default' ? (
+            {reading.source === 'population_reference' ? (
               <>
                 <p className="mt-3 font-num text-lg text-ink-950">Never</p>
                 <p className="mt-1.5 text-2xs text-ink-500">
@@ -146,7 +150,7 @@ export function ParameterDetail() {
         </div>
 
         <Panel className="p-4">
-          <SectionHeading trailing="last 6 hours">Charting provenance</SectionHeading>
+          <SectionHeading trailing={`last ${history.length} readings`}>Charting provenance</SectionHeading>
           <div className="mt-4">
             <ProvenanceTrace history={history} definition={definition} />
           </div>

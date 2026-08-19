@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export type Theme = 'day' | 'night'
+type Theme = 'day' | 'night'
 
 const STORAGE_KEY = 'pulsemind-theme'
 

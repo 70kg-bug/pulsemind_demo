@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import type { RiskContributor } from '../../types/clinical'
+import type { RiskContributor } from '@contract/clinical'
 import { cn } from '../../lib/cn'
 import { formatPercent } from '../../lib/format'
 
@@ -15,11 +15,10 @@ function widestShare(contributors: RiskContributor[]): number {
 /**
  * What drove this reading, ranked.
  *
- * Two distinctions are marked because collapsing either one would change what the list
- * means. A `documentation` contributor is a charting artefact — how often and how
- * recently something was recorded — and narrating it in a clinical voice would turn a
- * record-keeping pattern into a finding. An imputed contributor rests on a population
- * default rather than a measurement of this patient.
+ * Two distinctions are marked because collapsing either changes what the list
+ * means. A `documentation` contributor is a charting artefact, and narrating it
+ * clinically turns record-keeping into a finding. An imputed one rests on a
+ * population default rather than a measurement of this patient.
  */
 export function ContributorList({ contributors }: ContributorListProps) {
   if (contributors.length === 0) {

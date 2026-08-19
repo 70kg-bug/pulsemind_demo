@@ -1,49 +1,88 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import type { Assessment } from '../types/clinical'
-import { applyOfflineDevices, getWard } from './feed'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
+import type { Assessment } from '@contract/clinical'
+import { fetchWard, setDeviceOffline, tickWard } from './feed'
 
 interface WardValue {
   ward: Assessment[]
+  loading: boolean
+  error: string | null
+  /** Re-read the board from the API. */
+  refresh: () => Promise<void>
+  /** Advance every bed by one reading, then re-read. */
+  advance: () => Promise<void>
+  /** Switch one patient's input source off or on, then re-read. */
+  toggleDevice: (patientId: string, deviceId: string) => Promise<void>
   offlineDeviceIds: Set<string>
-  toggleDevice: (deviceId: string) => void
-  resetDevices: () => void
 }
 
 const WardContext = createContext<WardValue | null>(null)
 
 /**
- * The only stateful thing in the product.
+ * Holds the ward, and nothing else.
  *
- * Everything a screen renders is still derived — the single piece of state here is which
- * input sources have been switched off in the simulation. `applyOfflineDevices` is pure,
- * so `feed.ts` remains the one boundary between the screens and the data, and swapping
- * in a real transport is still a change to that file alone.
+ * No client-side simulation: switching a source off used to be recomputed in the
+ * browser with a made-up `imputed_share` delta. It is now a request, and the
+ * consequence comes back from the model — only the model knows how much of the
+ * decision rested on the values that stopped arriving.
  */
 export function WardProvider({ children }: { children: ReactNode }) {
-  const [offlineDeviceIds, setOfflineDeviceIds] = useState<Set<string>>(() => new Set())
+  const [ward, setWard] = useState<Assessment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const toggleDevice = useCallback((deviceId: string) => {
-    setOfflineDeviceIds((current) => {
-      const next = new Set(current)
-      if (next.has(deviceId)) {
-        next.delete(deviceId)
-      } else {
-        next.add(deviceId)
-      }
-      return next
-    })
+  const refresh = useCallback(async () => {
+    try {
+      setWard(await fetchWard())
+      setError(null)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'the ward could not be loaded')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  const resetDevices = useCallback(() => setOfflineDeviceIds(new Set()), [])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const advance = useCallback(async () => {
+    await tickWard()
+    await refresh()
+  }, [refresh])
+
+  const toggleDevice = useCallback(
+    async (patientId: string, deviceId: string) => {
+      const patient = ward.find((a) => a.patient_id === patientId)
+      const device = patient?.devices.find((d) => d.device_id === deviceId)
+      await setDeviceOffline(patientId, deviceId, device?.state !== 'offline')
+      await refresh()
+    },
+    [ward, refresh],
+  )
+
+  // Derived, not stored: the board already reports each source's state, and a
+  // second copy is a thing that can disagree.
+  const offlineDeviceIds = useMemo(
+    () =>
+      new Set(
+        ward.flatMap((assessment) =>
+          assessment.devices.filter((d) => d.state === 'offline').map((d) => d.device_id),
+        ),
+      ),
+    [ward],
+  )
 
   const value = useMemo<WardValue>(
-    () => ({
-      ward: applyOfflineDevices(getWard(), offlineDeviceIds),
-      offlineDeviceIds,
-      toggleDevice,
-      resetDevices,
-    }),
-    [offlineDeviceIds, toggleDevice, resetDevices],
+    () => ({ ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds }),
+    [ward, loading, error, refresh, advance, toggleDevice, offlineDeviceIds],
   )
 
   return <WardContext.Provider value={value}>{children}</WardContext.Provider>

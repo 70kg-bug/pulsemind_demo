@@ -1,9 +1,6 @@
 /**
- * Display formatting. Every function here is pure and takes only what it needs, so a
- * component never has to reach for a date library or reimplement rounding.
- *
- * Wording note: nothing in this file describes change over time. The model has no trend
- * inputs, so "3 min ago" is a statement about staleness, never about direction.
+ * Display formatting. Nothing here describes change over time: the model has no
+ * trend inputs, so there is no honest way to phrase one.
  */
 
 /** Calibrated probability, always two decimals: 0.78 */

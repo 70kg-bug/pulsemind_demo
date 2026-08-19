@@ -1,20 +1,12 @@
 /**
- * The band table.
- *
- * Figures come from the band calibration in `planning/pulsemind_data_dictionary.md` §8,
- * measured on the respiratory arm of composite deterioration within 6 hours.
- *
- * These cut points describe and explain a band. They never compute one: `risk_level`
- * arrives already decided by the hysteresis machine, and re-deriving it from the score
- * would discard that and bring back the band flicker the machine exists to remove.
+ * The band table, from the data dictionary section 8 -- respiratory arm, 6-hour
+ * horizon. It describes a band and never computes one: the published band
+ * arrives already decided by the hysteresis machine.
  */
 
-import type { RiskBand } from '../types/clinical'
+import type { RiskBand } from '@contract/clinical'
 
-/** Rate of the outcome across the whole cohort, for comparison against each band. */
-export const COHORT_BASE_RATE = 0.0833
-
-export interface BandDefinition {
+interface BandDefinition {
   band: RiskBand
   /** Inclusive lower bound of the score range. */
   scoreFrom: number
@@ -71,7 +63,7 @@ export const BANDS: BandDefinition[] = [
 
 const BY_BAND = new Map(BANDS.map((definition) => [definition.band, definition]))
 
-export function bandDefinition(band: RiskBand): BandDefinition {
+function bandDefinition(band: RiskBand): BandDefinition {
   const definition = BY_BAND.get(band)
   if (!definition) {
     throw new Error(`Unknown band: ${band}`)
