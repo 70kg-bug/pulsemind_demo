@@ -17,6 +17,86 @@ checks/                    Executable end-to-end verification.
 The model itself lives in a separate repository and is imported as a package; this one owns
 the serving path and the screen.
 
+## First-time setup
+
+⚠️ **This repository does not stand alone.** A clone of it by itself cannot run the demo —
+the model, its fitted artifacts and the Python environment all live outside it. It expects
+to sit in a workspace:
+
+```
+<workspace>/
+  .venv/            Python 3.12, shared by both repositories
+  bki/              the model repository -- REQUIRED, see step 1
+  models/           fitted artifacts, ~152 MB + 15 GB of 7B weights
+  pulsemind_demo/   this repository
+```
+
+### 1. The model repository, as a sibling directory
+
+`back-end/pythonService/requirements.txt` begins with `-e ../../../bki[llm]` — an editable
+install from a **local checkout**, not from PyPI. `bki/` must sit beside this directory, or
+the install fails on its first line and nothing else gets installed.
+
+### 2. The Python environment
+
+```powershell
+uv venv --python 3.12 ..\.venv
+cd back-end\pythonService
+uv pip install --python ..\..\..\.venv\Scripts\python.exe -r requirements.txt
+```
+
+⚠️ **The workspace venv is a `uv venv` and contains no pip** — `python -m pip` answers
+`No module named pip`, and there is no `Scripts\pip.exe`. Use `uv pip`; a plain `pip`
+command will either fail or, worse, silently hit a different interpreter's pip.
+
+⚠️ **Run the install from `pythonService/`.** The relative `../../../bki` path is resolved
+against the **working directory**, not against the requirements file. Verified — from
+anywhere else it fails outright:
+
+```
+error: Couldn't parse requirement ... at position 655
+  Caused by: path could not be normalized: D:\Temp\../../../bki
+```
+
+⚠️ **Torch is deliberately unpinned there.** The Blackwell `sm_120` GPU needs the cu128
+build, which comes from PyTorch's own index rather than PyPI:
+
+```powershell
+uv pip install --python ..\..\..\.venv\Scripts\python.exe torch --index-url https://download.pytorch.org/whl/cu128
+```
+
+Dropping the `[llm]` extra is a legitimate choice — the service still scores and bands, and
+explanations fall back to the deterministic template.
+
+### 3. The fitted artifacts
+
+`models/serving_assets.json` and its companions — booster, calibrator, band table,
+operating point, `evidence_map.json` — are loaded at startup (`model_runtime.py:26`,
+redirectable with `PM_MODELS_ROOT`). **They are in neither repository and cannot be:** they
+are derived from MIMIC-IV under a PhysioNet DUA. Without them the service will not start.
+The 7B weights under `models/llm` are a further 15 GB and are needed only for generated
+explanations, not for scoring.
+
+### 4. JavaScript dependencies — two different package managers
+
+```powershell
+cd back-end  ; npm install       # package-lock.json
+cd front-end ; pnpm install      # pnpm-lock.yaml
+```
+
+Do not cross them.
+
+### 5. `back-end/.env`
+
+Copy `back-end/.env.example` and fill it in — it documents every key, including the
+percent-encoding rule that makes an Atlas password with reserved characters parse. Two of
+its keys are optional and change behaviour rather than connectivity:
+
+- **`PM_ALLOW_DESTRUCTIVE`** — leaving it *out* of `.env` and setting it per-shell instead
+  is the safer habit, since it unlocks a seed that deletes all three collections.
+- **`LOG_SUBJECT_KEY`** — if you do put it in `.env`, the run commands below need no
+  environment prefix at all.
+
 ## Running it
 
 Three processes, in this order, each in its own terminal. Paths are relative to this
@@ -39,11 +119,9 @@ Verified with `PYTHONPATH` explicitly unset: `pipeline.core.features` resolves t
 `..\bki\pipeline\core\features.py`.
 
 It matters only if you rebuild the venv, where forgetting it breaks every import at
-startup:
-
-```powershell
-..\.venv\Scripts\pip.exe install -e ..\bki
-```
+startup — the fix is to redo **First-time setup step 2**, not to set the variable. Use the
+requirements file rather than a bare `pip install -e ..\bki`, which would miss the `[llm]`
+extra and the service's own dependencies.
 
 ⚠️ The workspace-root `.env` carries `PYTHONPATH="..\bki"` and looks load-bearing. It is
 not read by anything: Python does not parse `.env` files, and the variable is set neither
@@ -64,6 +142,10 @@ the Atlas URI and is gitignored.
   it they answer 403. Seeding **deletes every assessment, prompt and stay state**.
 - `LOG_SUBJECT_KEY` is the HMAC salt that pseudonymises patient ids in logs. Unset, they
   record `unkeyed` — fail-visible, never the raw id.
+
+Both are also valid `.env` keys — `.env.example` lists them. Put them there and the prefix
+above is unnecessary; the shell form is shown because it keeps the destructive one scoped
+to a single session.
 
 Ready when it prints `Connected to MongoDB` then `Server running on port 3500`.
 

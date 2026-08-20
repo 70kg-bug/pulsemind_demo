@@ -20,17 +20,28 @@ recomputed later.
 
 ## Running it
 
+First-time setup — the sibling `bki/` checkout, the venv, the fitted artifacts and the two
+package managers — is in [`../README.md`](../README.md). A clone of this repository alone
+cannot run the demo.
+
 ```powershell
 # 1  the model service, from pulsemind_demo/  (needs the GPU)
-$env:PYTHONPATH="..\bki"
 ..\.venv\Scripts\python.exe -m uvicorn app:app --app-dir back-end/pythonService
 
-# 2  this API, from back-end/   (needs .env -- copy .env.example)
-node server.js
+# 2  this API, from ANY directory   (needs back-end/.env -- copy .env.example)
+node back-end/server.js
 
 # 3  the dashboard, from front-end/
 pnpm dev
 ```
+
+⚠️ **No `PYTHONPATH` is needed** — this block used to set it. `pipeline.core` resolves
+through the editable install of `pulsemind_bki`, verified with the variable unset.
+
+⚠️ **`server.js` resolves `.env` against its own directory**, not the working directory, so
+the cwd no longer matters. Before that fix, launching it from anywhere but `back-end/`
+loaded no `.env` at all and mongoose rejected an undefined `MONGODB_URI` — an error that
+reads like a malformed URI and is actually a missing file.
 
 The board is empty until `POST /api/ward/seed`.
 
