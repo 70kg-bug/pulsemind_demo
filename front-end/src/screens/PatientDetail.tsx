@@ -6,8 +6,9 @@ import { isScored } from '@contract/clinical'
 import { SUFFICIENCY_FLOOR, reviewPrompt, toObservations } from '../data/feed'
 import { useAssessment, useWard } from '../data/WardProvider'
 import { bandMeaning } from '../data/bands'
-import { useClock } from '../hooks/useClock'
+import { useWardClock } from '../hooks/useWardClock'
 import { usePatientHistory } from '../hooks/useApi'
+import { useExplanationRequest } from '../hooks/useExplanationRequest'
 import {
   BAND_STATE_LABEL,
   BAND_STATE_MEANING,
@@ -19,6 +20,7 @@ import { BreathRhythm } from '../components/charts/BreathRhythm'
 import { ObservationStrip } from '../components/charts/ObservationStrip'
 import { ContributorList } from '../components/detail/ContributorList'
 import { ExplanationPanel } from '../components/detail/ExplanationPanel'
+import { GuidelineReferences } from '../components/detail/GuidelineReferences'
 import { ParameterTable } from '../components/detail/ParameterTable'
 import { PromptBanner } from '../components/detail/PromptBanner'
 import { PatientContextDrawer } from '../components/detail/PatientContextDrawer'
@@ -28,15 +30,24 @@ import { Panel } from '../components/ui/Panel'
 
 export function PatientDetail() {
   const { patientId = '' } = useParams()
-  const now = useClock()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
 
-  const { refresh } = useWard()
+  const { refresh, ward, revision } = useWard()
+  const { now } = useWardClock(ward)
   const assessment = useAssessment(patientId)
-  const { data: history } = usePatientHistory(patientId)
+  const { data: history } = usePatientHistory(patientId, revision)
+
+  // ABOVE the early return: hooks cannot sit behind a conditional. Reads the
+  // stored explanation off the assessment when there is one, and feeds BOTH the
+  // prose panel and the guideline-references panel from a single result.
+  const storedExplanation =
+    assessment && isScored(assessment) ? assessment.explanation : null
+  const explanation = useExplanationRequest(
+    patientId, assessment?.assessed_at ?? '', storedExplanation,
+  )
 
   if (!assessment) {
     return (
@@ -135,6 +146,15 @@ export function PatientDetail() {
             <span className="text-2xs text-ink-700">
               Prompt closed as <span className="font-medium">{review.disposition}</span> at{' '}
               {formatClock(new Date(review.reviewed_at))}
+              {/* BOTH CLOCKS, LABELLED. A simulated tick advances the ward an hour,
+                  so the wall-clock instant a clinician acted can sit a day from the
+                  reading it answers — measured at 26.6 h — while every other time on
+                  this screen is ward time. Printing the real instant alone made the
+                  disposition look like it preceded its own prompt. The field was
+                  already stored and reached no screen. */}
+              {review.ward_time_at_review && (
+                <> (ward clock {formatClock(new Date(review.ward_time_at_review))})</>
+              )}
               {review.attributed
                 ? ` by ${review.clinician}.`
                 : ' — not attributed to a named clinician, because this build has no authentication.'}
@@ -244,41 +264,23 @@ export function PatientDetail() {
                 <SectionHeading>Plain-language explanation</SectionHeading>
                 <div className="mt-3">
                   <ExplanationPanel
-                    explanation={scored.explanation}
-                    patientId={scored.patient_id}
+                    shown={explanation.shown}
+                    generating={explanation.generating}
+                    failure={explanation.failure}
+                    onGenerate={() => void explanation.request()}
                   />
                 </div>
               </Panel>
 
               <Panel className="min-w-0 flex-1 p-4">
                 <SectionHeading>Guideline references</SectionHeading>
-                {scored.citations.length > 0 ? (
-                  <>
-                    <ul className="mt-2">
-                      {scored.citations.map((citation) => (
-                        <li
-                          key={citation.source}
-                          className="border-t border-rule-faint py-2.5 first:border-t-0"
-                        >
-                          <p className="text-xs leading-relaxed text-ink-800">
-                            {citation.claim}
-                          </p>
-                          <p className="mt-1 font-mono text-xs text-ink-400">
-                            {citation.source}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-2 border-t border-rule-faint pt-2.5 text-xs text-ink-400">
-                      Retrieved from a fixed approved library — not generated. Prototype uses
-                      sample citations.
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-3 text-2xs text-ink-500">
-                    No references retrieved for this reading.
-                  </p>
-                )}
+                {/* Same object as the panel beside it, so one click fills both in
+                    one paint. The references are part of the generation, not a
+                    lookup that ran earlier and agrees. */}
+                <GuidelineReferences
+                  explanation={explanation.shown}
+                  generating={explanation.generating}
+                />
               </Panel>
             </div>
           </>

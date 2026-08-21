@@ -1,4 +1,8 @@
-require('dotenv').config();
+// Anchored to THIS file, not to process.cwd(). dotenv resolves a bare `.env`
+// against the working directory, so `node back-end/server.js` from the repo
+// root loaded nothing and mongoose rejected an undefined MONGODB_URI. With
+// the path pinned, the server runs from any directory.
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const app = express();
 const path = require('path');

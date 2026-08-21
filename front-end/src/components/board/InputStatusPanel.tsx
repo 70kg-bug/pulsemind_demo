@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { DeviceState, InputDevice } from '@contract/clinical'
 import { useWard } from '../../data/WardProvider'
 import { cn } from '../../lib/cn'
@@ -29,8 +31,23 @@ const STATE_LABEL: Record<DeviceState, string> = {
  * beside a real make and model. PulseMind writes nothing to these sources.
  */
 export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelProps) {
-  const { toggleDevice } = useWard()
+  const { toggleDevice, setDevices } = useWard()
   const offline = devices.filter((device) => device.state === 'offline')
+  // Collapsed by default, and it STAYS where you put it. Not a hover reveal and
+  // nothing that closes itself: every glance at this screen is a resumption, so
+  // content that appears and disappears on its own is content a returning nurse
+  // cannot rely on.
+  //
+  // A dropped source OPENS it; it does not PIN it open. `open = state ||
+  // offline.length > 0` made the header button inert in the one state this
+  // comment says it cares about — the chevron would not rotate back and
+  // `aria-expanded` was stuck true, so the control read as broken to a mouse
+  // and lied to a screen reader.
+  const [open, setOpen] = useState(false)
+  const hasOffline = offline.length > 0
+  useEffect(() => {
+    if (hasOffline) setOpen(true)
+  }, [hasOffline])
 
   return (
     <Panel className="p-4">
@@ -72,11 +89,27 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
 
       <div className="mt-3 border-t border-rule pt-3">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="field-label">Simulate source loss</p>
+          <button
+            type="button"
+            onClick={() => setOpen((was) => !was)}
+            aria-expanded={open}
+            className="field-label inline-flex items-center gap-1 text-ink-500 transition-colors hover:text-ink-950"
+          >
+            <ChevronRight
+              size={11}
+              strokeWidth={2.5}
+              className={cn('transition-transform', open && 'rotate-90')}
+            />
+            Simulate source loss
+          </button>
           {offline.length > 0 && (
             <button
               type="button"
-              onClick={() => offline.forEach((device) => void toggleDevice(patientId, device.device_id))}
+              // ONE write. Firing a request per device raced the server's
+              // read-modify-write on `offline_devices`: three reads of the same
+              // list, three last-write-wins saves, one device actually restored
+              // — and no error anywhere, because each response was correct.
+              onClick={() => void setDevices(patientId, offline.map((d) => d.device_id), false)}
               className="text-2xs text-accent underline underline-offset-2"
             >
               Restore all
@@ -84,6 +117,8 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
           )}
         </div>
 
+        {open && (
+        <>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {devices.map((device) => (
             <button
@@ -109,6 +144,8 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
           sufficiency floor no score is published and the patient leaves the ranked board.
           The source-to-parameter mapping is a prototype assumption, not a published one.
         </p>
+        </>
+        )}
       </div>
     </Panel>
   )

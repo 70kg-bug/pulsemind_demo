@@ -16,6 +16,7 @@ const h = asyncHandler;
 router.get('/ward', h(assessmentController.getWard));
 router.post('/ward/seed', h(assessmentController.seedWard));
 router.post('/ward/tick', h(assessmentController.tickWard));
+router.post('/ward/warmup', h(assessmentController.warmExplainer));
 
 router.get('/patient/:patientId', h(assessmentController.getPatient));
 router.get('/patient/:patientId/history', h(assessmentController.getHistory));

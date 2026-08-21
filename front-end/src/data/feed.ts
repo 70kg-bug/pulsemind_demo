@@ -13,6 +13,7 @@
 
 import type {
   Assessment,
+  Explanation,
   ParameterHistoryPoint,
   ParameterName,
   RefusedAssessment,
@@ -25,10 +26,32 @@ import { bandRank } from './bands'
 /** Relative, because Vite proxies /api to the Node service in development. */
 const API = '/api'
 
+/**
+ * The API answers a failure with RFC 9457 `problem+json`, or with a `message`.
+ * Read it: a status code alone turns "seeding needs PM_ALLOW_DESTRUCTIVE" and
+ * "the ward was never seeded" into the same unactionable number on screen.
+ */
+async function failure(path: string, response: Response): Promise<Error> {
+  let detail = ''
+  try {
+    const body = await response.json()
+    const raw = body?.detail ?? body?.message
+    // FastAPI's validation errors put an ARRAY of objects in `detail`, so the
+    // obvious read renders as "[object Object]" on screen. Flatten to the
+    // messages, which is the part a reader can act on.
+    detail = Array.isArray(raw)
+      ? raw.map((item) => item?.msg ?? JSON.stringify(item)).join('; ')
+      : typeof raw === 'string' ? raw : ''
+  } catch {
+    // A non-JSON body is itself worth nothing to a reader; fall through.
+  }
+  return new Error(detail || `${path} returned ${response.status}`)
+}
+
 async function readJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API}${path}`)
   if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`)
+    throw await failure(path, response)
   }
   return response.json() as Promise<T>
 }
@@ -40,7 +63,7 @@ async function sendJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`)
+    throw await failure(path, response)
   }
   return response.json() as Promise<T>
 }
@@ -76,27 +99,59 @@ export function fetchParameterHistory(
 // Writes
 // ---------------------------------------------------------------------------
 
-/** Advance every bed by one reading. */
+/** Advance every bed by one reading. `at` is the ward's own clock, which a tick
+ *  moves forward an hour — not the wall clock. */
 export function tickWard(): Promise<{ at: string }> {
   return sendJson('/ward/tick', {})
 }
 
-/** Switch an input source off, or back on. */
-export function setDeviceOffline(
-  patientId: string,
-  deviceId: string,
-  offline: boolean,
-): Promise<{ offline_devices: string[] }> {
-  return sendJson(`/patient/${patientId}/device`, { device_id: deviceId, offline })
+/** Rebuild the ward from nothing.
+ *
+ *  DESTRUCTIVE: it deletes every assessment, prompt and stay state, and the
+ *  server refuses unless PM_ALLOW_DESTRUCTIVE is set. Why the demo passes the
+ *  backfill it does is at `DEMO_BACKFILL`, not here. */
+export function seedWard(backfillTicks: number): Promise<{ patients: number }> {
+  return sendJson('/ward/seed', { backfill_ticks: backfillTicks })
 }
 
-/** Ask the local model to write the explanation. Takes tens of seconds. */
-export function generateExplanation(patientId: string): Promise<{
-  status: string
-  explanation_text: string
-  grounding_status: string
-}> {
-  return sendJson(`/patient/${patientId}/explain`, {})
+/** Load the 7B before anyone asks for an explanation. Stores nothing: the
+ *  alternative, explaining some bed to warm the weights, leaves a real
+ *  explanation attached to a reading nobody asked about. */
+export function warmExplainer(): Promise<{ explainer: string; was_loaded: boolean }> {
+  return sendJson('/ward/warmup', {})
+}
+
+/** Switch input sources off, or back on.
+ *
+ *  Takes a LIST because the server's write is read-modify-write on one array:
+ *  three restores as three requests read the same list, saved last-write-wins,
+ *  and exactly one device came back. Each response was individually correct,
+ *  which is why it looked like nothing was wrong. */
+export function setDevicesOffline(
+  patientId: string,
+  deviceIds: string[],
+  offline: boolean,
+): Promise<{ offline_devices: string[] }> {
+  return sendJson(`/patient/${patientId}/device`, { device_ids: deviceIds, offline })
+}
+
+/** Ask the local model to write the explanation. Takes tens of seconds.
+ *
+ *  `assessedAt` names the reading to explain. Worth passing whenever the board
+ *  is moving: generation takes 18-23 s, and the server's default of "the latest"
+ *  is resolved when the request arrives, so the text can land on a row several
+ *  readings older than the one the clinician was looking at.
+ *
+ *  `useLlm: false` selects the deterministic template instead — no GPU, instant,
+ *  and the only way to exercise this path on a busy card. */
+export function generateExplanation(
+  patientId: string,
+  options: { assessedAt?: string; useLlm?: boolean } = {},
+): Promise<Explanation> {
+  return sendJson(`/patient/${patientId}/explain`, {
+    ...(options.assessedAt ? { assessed_at: options.assessedAt } : {}),
+    ...(options.useLlm === false ? { use_llm: false } : {}),
+  })
 }
 
 /** Record a clinician's disposition of a prompt. */

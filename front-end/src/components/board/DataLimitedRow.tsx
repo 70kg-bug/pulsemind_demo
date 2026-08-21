@@ -37,9 +37,13 @@ export function DataLimitedRow({ assessment, selected, onSelect, now }: DataLimi
           type="button"
           onClick={onSelect}
           aria-pressed={selected}
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5 text-left sm:px-4"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 px-3 py-1.5 text-left sm:px-4"
         >
-          <span className="flex min-w-[8rem] shrink-0 flex-col gap-0.5">
+          {/* Bed and patient on ONE baseline. Both are identifiers for the same
+              person, and stacked they were 39px — the row's binding height once
+              the score was inlined. Eight rows of it was the difference between
+              a board showing six beds and one showing all eight. */}
+          <span className="flex min-w-[9.5rem] shrink-0 items-baseline gap-2">
             <span className="font-mono text-sm font-medium text-ink-950">
               {assessment.bed_code}
             </span>

@@ -43,9 +43,13 @@ export function PatientRow({ assessment, selected, onSelect, now }: PatientRowPr
           type="button"
           onClick={onSelect}
           aria-pressed={selected}
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5 text-left sm:px-4"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 px-3 py-1.5 text-left sm:px-4"
         >
-          <span className="flex min-w-[8rem] shrink-0 flex-col gap-0.5">
+          {/* Bed and patient on ONE baseline. Both are identifiers for the same
+              person, and stacked they were 39px — the row's binding height once
+              the score was inlined. Eight rows of it was the difference between
+              a board showing six beds and one showing all eight. */}
+          <span className="flex min-w-[9.5rem] shrink-0 items-baseline gap-2">
             <span className="font-mono text-sm font-medium text-ink-950">
               {assessment.bed_code}
             </span>
@@ -54,7 +58,13 @@ export function PatientRow({ assessment, selected, onSelect, now }: PatientRowPr
 
           <BandTag band={assessment.risk_level} className="shrink-0" />
 
-          <span className="flex shrink-0 flex-col items-end gap-0.5">
+          {/* Numeral and caption on ONE baseline, not stacked. Stacked, this was
+              44px and the tallest thing in the row — it, not the bed/patient
+              pair, set the row height, and eight of them pushed two beds off a
+              board whose whole job is showing all of them at once. Nothing is
+              lost: the word still labels the number, beside it instead of under
+              it. */}
+          <span className="flex shrink-0 items-baseline gap-1.5">
             <span className="font-num text-xl tabular-nums leading-none text-ink-950">
               {formatScore(assessment.risk_score)}
             </span>

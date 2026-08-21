@@ -47,10 +47,15 @@ saturated queue returns 503 with `Retry-After`; an upstream 422 surfaces as 4xx 
 records `attributed: false`; every response carries a distinct request id; and no patient
 identifier reaches the request log.
 
-**`check_service.py`** — seed → tick → explain, 17 assertions. The one that matters most:
+**`check_service.py`** — seed → tick → explain, 23 assertions. The one that matters most:
 the explanation's dwell phrase must equal the stored assessment's `readings_in_state`. If
 it does not, the service re-scored the reading instead of explaining the stored one, and
 grounding cannot catch that because both sides of the check would be wrong together.
+
+Six of the 23 cover the citation contract, and the read-back is the point rather than the
+write: the passages live on the **explanation**, not the assessment, so Mongoose strict mode
+will silently drop them if `explanationSchema` ever stops declaring them — which is how a
+field can reach the API and vanish on save.
 
 **`floor_margin.py`** — the bed that demonstrates the data-sufficiency floor refuses on
 *every* reading, with margin. It once refused on some and published LOW on others while its
@@ -58,7 +63,7 @@ inputs were identical throughout, because the deciding share tracks where the mo
 attribution landed rather than how many inputs were missing.
 
 **`check_llm.py`** — the 7B path end to end: grounding passed, and the stored band, dwell
-and score are unchanged by explaining. Cold load is ~40 s, warm ~13 s, and the text is
+and score are unchanged by explaining. Cold load is ~40 s through the service, and the text is
 byte-identical across runs by design.
 
 ⚠️ **This leaves ~4.7 GB of VRAM occupied until you stop the model service.** The model is
@@ -73,7 +78,7 @@ netstat -ano | findstr :8000
 
 ## Expected
 
-`check_service.py` 17/17 · `check_llm.py` 10/10 · `floor_margin.py` silent on every reading
+`check_service.py` 23/23 · `check_llm.py` 10/10 · `floor_margin.py` silent on every reading
 · `check_node.py` and `secrets_gate.py` all pass.
 
 An assertion that silently skips reports as a pass. If a count drops, something stopped
