@@ -96,7 +96,7 @@ export function InputStatusPanel({ devices, now, patientId }: InputStatusPanelPr
             className="field-label inline-flex items-center gap-1 text-ink-500 transition-colors hover:text-ink-950"
           >
             <ChevronRight
-              size={11}
+              size={12}
               strokeWidth={2.5}
               className={cn('transition-transform', open && 'rotate-90')}
             />

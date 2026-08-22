@@ -90,7 +90,7 @@ export function PatientContextDrawer({
             className="rounded-[2px] p-1 text-ink-500 transition-colors hover:bg-surface-sunken hover:text-ink-950"
             aria-label="Close patient context"
           >
-            <X size={15} strokeWidth={2} />
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
 

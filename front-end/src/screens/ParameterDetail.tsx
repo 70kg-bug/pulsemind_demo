@@ -56,7 +56,7 @@ export function ParameterDetail() {
             to={`/patient/${patientId}`}
             className="inline-flex items-center gap-1.5 text-2xs text-ink-500 transition-colors hover:text-accent"
           >
-            <ArrowLeft size={13} strokeWidth={2} />
+            <ArrowLeft size={14} strokeWidth={2} />
             Back to {assessment.bed_code}
           </Link>
           <h1 className="mt-2 text-xl font-semibold tracking-[-0.015em] text-ink-950">

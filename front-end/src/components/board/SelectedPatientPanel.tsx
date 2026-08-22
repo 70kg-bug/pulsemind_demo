@@ -96,7 +96,7 @@ export function SelectedPatientPanel({ assessment }: SelectedPatientPanelProps) 
         className="mt-5 flex w-full items-center justify-center gap-2 rounded-[2px] bg-ink-950 px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-accent"
       >
         Open patient detail
-        <ArrowRight size={14} strokeWidth={2} />
+        <ArrowRight size={15} strokeWidth={2} />
       </Link>
     </Panel>
   )

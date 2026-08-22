@@ -26,11 +26,14 @@ export function SegmentMeter({ band, className }: SegmentMeterProps) {
         <span
           key={step}
           className={cn(
-            'w-[3px] rounded-[1px]',
-            step === 1 && 'h-[5px]',
-            step === 2 && 'h-[7px]',
-            step === 3 && 'h-[9px]',
-            step === 4 && 'h-[11px]',
+            // In `rem`, not px: the tallest bar is deliberately the height of
+            // the `text-2xs` label it sits beside, and in px that match held at
+            // a 16px root and quietly stopped holding when the root grew.
+            'w-[0.1875rem] rounded-[1px]',
+            step === 1 && 'h-[0.3125rem]',
+            step === 2 && 'h-[0.4375rem]',
+            step === 3 && 'h-[0.5625rem]',
+            step === 4 && 'h-[0.6875rem]',
             step <= segments ? cn('bg-current', ink) : 'bg-rule-strong',
           )}
         />

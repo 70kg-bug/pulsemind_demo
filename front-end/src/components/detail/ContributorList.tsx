@@ -57,7 +57,7 @@ export function ContributorList({ contributors }: ContributorListProps) {
               </span>
               {contributor.is_imputed && (
                 <span className="inline-flex items-center gap-1 rounded-[2px] border border-prov-default-edge bg-prov-default-tint px-1.5 py-[1px] text-2xs font-medium uppercase tracking-[0.06em] text-prov-default">
-                  <AlertTriangle size={9} strokeWidth={2.5} />
+                  <AlertTriangle size={10} strokeWidth={2.5} />
                   Population default
                 </span>
               )}

@@ -88,9 +88,23 @@ export function PatientOverviewBoard() {
           Set down from 4xl/5xl: at 49-61px it and its note cost 116px of a
           876px screen, which is two ward beds. The tier survives — deleting the
           h1 would remove display type from the board entirely — but it earns
-          its space at 24px on one line beside the note. */}
+          its space on one line beside the note.
+
+          ⚠️ Now `text-xl`, down from `text-2xl`. The comment above said "24px"
+          while the class said 2xl, which is 31 — it had been describing an
+          intention rather than the screen.
+
+          ⚠️ And this is NOT where the height is. Measured on an 876px viewport
+          at an 18px root — the largest scale tried, so the most favourable case
+          for finding room here — the block was 77px of which the h1 was 27 and
+          the NOTE was 69. They sit side by side, so the taller one sets the
+          height: dropping the h1 a step bought SIX PIXELS. Widening the note's
+          `56ch` measure would recover ~23px and is not worth the reading
+          comfort. The board's real height is in the bed rows, seven of them at
+          87px, each carrying an "awaiting clinician review" banner. Do not come
+          here expecting to find it. */}
       <div className="mb-3 flex shrink-0 flex-wrap items-baseline justify-between gap-x-8 gap-y-1">
-        <h1 className="display text-2xl text-ink-950">Adult ventilated ICU patients</h1>
+        <h1 className="display text-xl text-ink-950">Adult ventilated ICU patients</h1>
         <p className="max-w-[56ch] text-xs leading-relaxed text-ink-700">
           A prompt is raised only when a band change is sustained and confirmed — roughly one
           in every 34 readings. A patient held at HIGH for six hours is one interruption, not
@@ -123,7 +137,7 @@ export function PatientOverviewBoard() {
         <section className="flex min-w-0 flex-1 flex-col gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <Panel className="flex flex-wrap items-center gap-3 p-2.5">
             <label className="flex min-w-[14rem] flex-1 items-center gap-2 rounded-[2px] border border-rule bg-surface-sunken px-2.5">
-              <Search size={13} strokeWidth={2} className="shrink-0 text-ink-400" />
+              <Search size={14} strokeWidth={2} className="shrink-0 text-ink-400" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}

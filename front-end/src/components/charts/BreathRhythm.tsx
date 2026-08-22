@@ -99,7 +99,7 @@ export function BreathRhythm({ assessment, band, size = 'detail' }: BreathRhythm
           onClick={() => setRun((current) => current + 1)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-rule-strong px-2.5 py-1 text-2xs font-medium text-ink-950 transition-colors hover:border-ink-950 hover:bg-surface-sunken"
         >
-          <Play size={11} strokeWidth={2.5} />
+          <Play size={12} strokeWidth={2.5} />
           {playing ? 'Breathing…' : 'Play rhythm'}
         </button>
       </div>

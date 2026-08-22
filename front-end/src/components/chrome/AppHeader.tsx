@@ -76,9 +76,9 @@ export function AppHeader() {
             title={theme === 'day' ? 'Night' : 'Day'}
           >
             {theme === 'day' ? (
-              <Moon size={13} strokeWidth={2} />
+              <Moon size={14} strokeWidth={2} />
             ) : (
-              <Sun size={13} strokeWidth={2} />
+              <Sun size={14} strokeWidth={2} />
             )}
           </button>
         </div>

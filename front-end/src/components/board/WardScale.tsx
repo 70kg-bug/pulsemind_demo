@@ -4,7 +4,7 @@ import { BANDS } from '../../data/bands'
 import { BAND_STYLES } from '../../lib/bandStyles'
 import { cn } from '../../lib/cn'
 import { formatScore } from '../../lib/format'
-import { ROW_PITCH, placeLabels } from '../../lib/labelPlacement'
+import { placeLabels } from '../../lib/labelPlacement'
 import { useMeasuredWidth } from '../../hooks/useMeasuredWidth'
 
 interface WardScaleProps {
@@ -13,11 +13,27 @@ interface WardScaleProps {
   onSelect: (patientId: string) => void
 }
 
-/** Clear space between the lowest label row and the axis, in pixels. Tall enough
- *  that a displaced leader line leans rather than lies flat: the widest travel
- *  measured on this ward is 63px, which over 22px reads as a line and not as a
- *  rule. */
-const LEADER_HEIGHT = 22
+/**
+ * Vertical distance between label rows, as a multiple of a label's own height.
+ *
+ * ⚠️ DERIVED FROM THE MEASURED LABEL, not from a constant and not from the root
+ * font size. A fixed 20px was correct beside an 11px label and left ONE pixel of
+ * clearance beside a 19px one — measured in the running app after the type scale
+ * grew. And deriving it from `rem` failed too: read at module load the root is
+ * still the browser default, because Vite injects the stylesheet after the
+ * modules evaluate. The label is already measured for its width; its height is
+ * the thing the pitch has to clear, so measuring that settles it at any scale.
+ */
+const ROW_PITCH_RATIO = 1.2
+
+/** Clear space between the lowest label row and the axis, as a multiple of the
+ *  row pitch. Tall enough that a displaced leader line leans rather than lies
+ *  flat: the widest travel measured on this ward is 63px, which over ~22px reads
+ *  as a line and not as a rule. */
+const LEADER_RATIO = 1.1
+
+/** Used only until the probe reports, on the very first paint. */
+const FALLBACK_PITCH = 20
 
 /**
  * A reading moves a bed along the axis; it must travel there rather than appear
@@ -54,7 +70,10 @@ const SLIDE_LEADER = `${SLIDE}, height 700ms ${EASE}, transform 700ms ${EASE}`
  */
 export function WardScale({ patients: given, selectedId, onSelect }: WardScaleProps) {
   const [trackRef, trackWidth] = useMeasuredWidth<HTMLDivElement>()
-  const [probeRef, labelWidth] = useMeasuredWidth<HTMLSpanElement>()
+  const [probeRef, labelWidth, labelHeight] = useMeasuredWidth<HTMLSpanElement>()
+
+  const rowPitch = labelHeight > 0 ? labelHeight * ROW_PITCH_RATIO : FALLBACK_PITCH
+  const leaderHeight = rowPitch * LEADER_RATIO
 
   // A non-finite score would place its label at `left: NaN%`, which the browser
   // ignores — so the bed would sit at the far left looking like a real reading
@@ -77,7 +96,7 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
     labelWidth,
   )
   const byId = new Map(placements.map((p) => [p.id, p]))
-  const labelsHeight = rows * ROW_PITCH
+  const labelsHeight = rows * rowPitch
   const pct = (px: number) => (trackWidth > 0 ? (px / trackWidth) * 100 : 0)
 
   return (
@@ -101,7 +120,7 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
       <div
         ref={trackRef}
         className="relative"
-        style={{ height: `${labelsHeight + LEADER_HEIGHT}px` }}
+        style={{ height: `${labelsHeight + leaderHeight}px` }}
       >
         {patients.map((patient) => {
           const placement = byId.get(patient.patient_id)
@@ -120,7 +139,7 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
           // configurations; the evenly-spread demo ward happens never to show it.
           //
           // Why the split is sound rather than merely better: the diagonals all
-          // rise the same LEADER_HEIGHT, and with `trueX` and `placedX` both
+          // rise the same leaderHeight, and with `trueX` and `placedX` both
           // non-decreasing the gap between two of them is linear in height and
           // non-negative at both ends, so it cannot change sign between them.
           // The risers sit at distinct `placedX` and live entirely above the
@@ -128,11 +147,11 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
           //
           // The diagonal is anchored at the mark and rotated about its own foot,
           // so its head lands on the label's column by construction: rotation
-          // atan(shift / LEADER_HEIGHT), length hypot(shift, LEADER_HEIGHT).
+          // atan(shift / leaderHeight), length hypot(shift, leaderHeight).
           const shift = placement.placedX - placement.trueX
-          const length = Math.hypot(shift, LEADER_HEIGHT)
-          const angle = (Math.atan2(shift, LEADER_HEIGHT) * 180) / Math.PI
-          const riser = placement.row * ROW_PITCH
+          const length = Math.hypot(shift, leaderHeight)
+          const angle = (Math.atan2(shift, leaderHeight) * 180) / Math.PI
+          const riser = placement.row * rowPitch
 
           return (
             <Fragment key={`leader-${patient.patient_id}`}>
@@ -157,7 +176,7 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
                   )}
                   style={{
                     left: `${pct(placement.placedX)}%`,
-                    bottom: `${LEADER_HEIGHT}px`,
+                    bottom: `${leaderHeight}px`,
                     height: `${riser}px`,
                     transform: 'translateX(-50%)',
                     transition: SLIDE_LEADER,
@@ -185,7 +204,7 @@ export function WardScale({ patients: given, selectedId, onSelect }: WardScalePr
               className="absolute -translate-x-1/2 whitespace-nowrap bg-page px-1 font-mono text-2xs tabular-nums"
               style={{
                 left: `${pct(placement.placedX)}%`,
-                bottom: `${LEADER_HEIGHT + placement.row * ROW_PITCH}px`,
+                bottom: `${leaderHeight + placement.row * rowPitch}px`,
                 transition: SLIDE_LABEL,
               }}
             >

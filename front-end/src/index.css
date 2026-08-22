@@ -273,6 +273,51 @@
 
 @layer base {
   html {
+    /* THE ONE NUMBER THAT SETS THE SIZE OF EVERYTHING.
+       106.25% of a 16px default = 17px, so the scale below reads
+       11.7 · 13.3 · 14.9 · 17 rather than 11 · 12.5 · 14 · 16.
+
+       Chosen over 112.5% (18px) after measuring both on the board: 18px read
+       better but cost 78px more of a viewport that is already short, and the
+       ward board is the thing being demonstrated. See the fit note below.
+
+       Set here rather than by editing the `--text-*` tokens, because a rem is
+       also what every Tailwind padding, gap and fixed width in this app is
+       denominated in. Raising the tokens alone grows the text inside containers
+       that stay put, and `min-w-[9.5rem]`, `w-24` and `w-14` all start wrapping;
+       raising the root grows both together and none of them do.
+
+       ⚠️ It does NOT reach raw pixel values. The lucide `size={}` props were
+       scaled by hand and `SegmentMeter`'s bars moved to rem. `WardScale`'s row
+       pitch and leader height are derived from the MEASURED label box instead —
+       reading this value back off the document was tried and failed, because in
+       Vite dev the stylesheet is injected after the modules evaluate, so a
+       module-load read returns the browser's 16px default and the pitch stayed
+       20px beside a 19px label. Anything added later that pairs a px constant
+       with a text size has to be measured or scaled; assuming a rem is not safe
+       at module scope.
+
+       ⚠️ THE BOARD NO LONGER FITS ONE SCREEN, AND IT DID NOT BEFORE THIS EITHER.
+       Measured 2026-08-22 in Chrome on this machine -- 150% display scaling, so
+       a maximised window is exactly the 876px viewport commit e8a4fcf tuned
+       against. The ranked list overflows by:
+
+           240px at 16px root   <- the scale before this change
+           324px at 17px        <- here
+           402px at 18px
+
+       So this made an existing overflow worse; it did not create one. The ward
+       gained a per-row "awaiting clinician review" banner since e8a4fcf, and
+       seven rows at 87px is simply more than the 412px the list pane gets. The
+       list has `overflow-y-auto`, so it scrolls rather than clipping.
+
+       The height is IN THE BED ROWS. It is not in the h1 (27px), not in the note
+       beside it (69px, and worth ~23px if its measure were widened), and not in
+       the risk scale (203px, most of it the label rows and the axis). Anyone
+       trying to win it back should start by measuring, not by shrinking chrome.
+
+       Lowering this number is the cheap lever and it buys ~80px a step. */
+    font-size: 106.25%;
     -webkit-text-size-adjust: 100%;
     background-color: var(--page);
   }

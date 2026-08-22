@@ -115,7 +115,7 @@ export function ParameterTable({ patientId, parameters, contributors }: Paramete
                     </span>
                   </span>
 
-                  <ChevronRight size={13} strokeWidth={2} className="w-4 shrink-0 text-ink-300" />
+                  <ChevronRight size={14} strokeWidth={2} className="w-4 shrink-0 text-ink-300" />
                 </Link>
               )
             })}

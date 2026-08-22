@@ -12,11 +12,31 @@
  * label keeps its full text; the leader line is what ties it back to its mark.
  */
 
-/** Clear space between two labels sharing a row, in pixels. */
-const GUTTER = 12
+/**
+ * CSS pixels in one rem, read from the document rather than assumed to be 16.
+ *
+ * The gutter sits beside text sized by the type scale, and the type scale is in
+ * rem. Hardcoded at 12 it was right at a 16px root and silently wrong the moment
+ * `html { font-size }` moved.
+ *
+ * ⚠️ READ LAZILY, ON FIRST USE — NOT AT MODULE LOAD. Read at load it came back
+ * 16 even though the root is 18: in Vite dev the stylesheet is injected by JS
+ * after the modules evaluate, so the document has no styles yet when this file
+ * runs. `placeLabels` is only ever called during a render, by which point it
+ * does. The `document === undefined` fallback keeps the function usable outside
+ * a browser, which is what lets the geometry be fuzzed.
+ */
+let remCache = 0
+const rem = () => {
+  if (remCache) return remCache
+  remCache = typeof document === 'undefined'
+    ? 16
+    : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+  return remCache
+}
 
-/** Vertical distance between label rows, in pixels. */
-export const ROW_PITCH = 20
+/** Clear space between two labels sharing a row, in pixels. */
+const gutter = () => 0.75 * rem()
 
 /** Rows are cheap but not free — each one pushes the axis further down. */
 const MAX_ROWS = 3
@@ -147,7 +167,7 @@ export function placeLabels(
     return { placements: [], rows: 1 }
   }
 
-  const need = labelWidth + GUTTER
+  const need = labelWidth + gutter()
   const ordered = [...items].sort((a, b) => a.value - b.value)
   const rows = rowsFor(ordered.map((i) => i.value * trackWidth), need, trackWidth, labelWidth)
 

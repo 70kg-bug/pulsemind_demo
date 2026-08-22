@@ -56,7 +56,21 @@ export function PatientRow({ assessment, selected, onSelect, now }: PatientRowPr
             <span className="font-mono text-2xs text-ink-500">{assessment.patient_id}</span>
           </span>
 
-          <BandTag band={assessment.risk_level} className="shrink-0" />
+          {/* A FIXED COLUMN, not a shrink-wrapped tag. The four band names are
+              different lengths, so the pill ran 74.6px at LOW to 106.5px at
+              CRITICAL — and since everything after it is laid out in source
+              order, the score numeral started at four different x positions down
+              a single board (378, 383, 403, 410). A column of numbers that does
+              not form a column is the one thing a triage board cannot afford:
+              the eye scans down it.
+
+              The width is the widest tag plus slack, and the pill keeps its
+              natural size inside it — stretching the pill itself would put a
+              wide LOW badge next to a wide CRITICAL one and imply they carry the
+              same weight. */}
+          <span className="flex w-[6.75rem] shrink-0">
+            <BandTag band={assessment.risk_level} />
+          </span>
 
           {/* Numeral and caption on ONE baseline, not stacked. Stacked, this was
               44px and the tallest thing in the row — it, not the bed/patient
@@ -99,7 +113,7 @@ export function PatientRow({ assessment, selected, onSelect, now }: PatientRowPr
           aria-label={`Open ${assessment.bed_code}, patient ${assessment.patient_id}`}
         >
           <span className="hidden sm:inline">Open</span>
-          <ArrowRight size={13} strokeWidth={2} />
+          <ArrowRight size={14} strokeWidth={2} />
         </Link>
       </div>
 

@@ -75,7 +75,7 @@ export function DataLimitedRow({ assessment, selected, onSelect, now }: DataLimi
           aria-label={`Open ${assessment.bed_code}, patient ${assessment.patient_id}`}
         >
           <span className="hidden sm:inline">Open</span>
-          <ArrowRight size={13} strokeWidth={2} />
+          <ArrowRight size={14} strokeWidth={2} />
         </Link>
       </div>
     </div>

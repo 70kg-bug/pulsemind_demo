@@ -37,16 +37,28 @@ export function ExplanationPanel(
       disabled={generating}
       className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-2.5 py-1.5 text-2xs font-medium text-ink-950 transition-colors hover:border-ink-950 disabled:cursor-progress disabled:text-ink-500"
     >
-      <Sparkles size={11} strokeWidth={2.5} />
+      <Sparkles size={12} strokeWidth={2.5} />
       {generating ? 'Generating…' : shown === null ? 'Generate explanation' : 'Explain this reading'}
     </button>
   )
 
-  if (shown === null) {
+  // GENERATING IS CHECKED FIRST, ABOVE `shown === null`, and that ordering is
+  // the whole fix. This state used to live inside the never-requested branch, so
+  // it showed on the FIRST generation and never again: asking for another
+  // explanation left the previous prose sitting there while the references panel
+  // beside it visibly cleared and refilled. Dimming the old text instead was
+  // tried and rejected — greyed-out prose still reads as the answer, and the
+  // panel is claiming to be writing a new one.
+  //
+  // The old text is not lost: it is stored on the assessment, and if this
+  // generation fails `shown` falls back to it on the next render.
+  if (generating || shown === null) {
     return (
       <div className="rounded-[2px] border border-dashed border-rule-strong bg-surface-sunken px-3.5 py-4">
         <p className="text-2xs font-medium uppercase tracking-[0.07em] text-ink-500">
-          {generating ? 'Writing the explanation…' : 'No explanation requested'}
+          {generating
+            ? shown === null ? 'Writing the explanation…' : 'Re-running the model…'
+            : 'No explanation requested'}
         </p>
         <p className="mt-1.5 max-w-[62ch] text-xs leading-relaxed text-ink-500">
           {generating
@@ -56,6 +68,17 @@ export function ExplanationPanel(
             : 'No narrative was generated for this reading. The score, band, inputs and ' +
               'ranked factors above are complete.'}
         </p>
+
+        {/* Say it before they wait twenty seconds for it. Decoding is greedy, so
+            re-running the model on the same reading returns byte-identical prose
+            — verified with two live calls, same sha256. Unannounced, the honest
+            outcome is indistinguishable from a button that did nothing. */}
+        {generating && shown !== null && (
+          <p className="mt-1.5 max-w-[62ch] text-xs leading-relaxed text-ink-500">
+            Decoding is greedy, so the same reading returns the same wording. The
+            guideline passages beside this are being selected again in the same call.
+          </p>
+        )}
 
         {failure && (
           <p className="mt-2 max-w-[62ch] text-xs leading-relaxed text-band-critical-edge">
@@ -95,14 +118,21 @@ export function ExplanationPanel(
     <div>
       {explanationToRender.grounding_status === 'passed' && (
         <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-verified/25 bg-verified-tint px-2 py-1 text-xs font-semibold uppercase tracking-[0.07em] text-verified">
-          <Check size={11} strokeWidth={3} />
+          <Check size={12} strokeWidth={3} />
           Checked against this assessment
         </span>
       )}
 
       {/* Set larger and to a narrower measure than the data around it — this is the one
-          place on the screen where prose is read as prose. */}
-      <p className="mt-3 max-w-[62ch] text-md leading-[1.6] text-ink-800">
+          place on the screen where prose is read as prose.
+
+          ⚠️ This said `text-md`, which is not a class. The theme defines
+          2xs/xs/sm/base/lg…, Tailwind has no `md` font-size key either, so it
+          compiled to nothing and the paragraph inherited body's 14px — the same
+          size as the data it was supposed to stand apart from. The comment above
+          had been true of the intent and false of the screen since it was
+          written. `text-base` is what it meant. */}
+      <p className="mt-3 max-w-[62ch] text-base leading-[1.6] text-ink-800">
         {explanationToRender.explanation_text}
       </p>
 

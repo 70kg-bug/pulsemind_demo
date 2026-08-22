@@ -95,7 +95,7 @@ export function PatientDetail() {
             to="/"
             className="inline-flex items-center gap-1.5 text-2xs text-ink-500 transition-colors hover:text-accent"
           >
-            <ArrowLeft size={13} strokeWidth={2} />
+            <ArrowLeft size={14} strokeWidth={2} />
             Back to overview
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-3">
