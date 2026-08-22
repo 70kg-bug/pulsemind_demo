@@ -198,9 +198,13 @@ one. The spans are indented as they nest: the model service's stages sit inside 
 hop, which sits inside the browser round trip, so their durations are not meant to be added
 up.
 
-A tick, measured on 2026-08-22: **60.4 ms** to score each reading, **14.9 ms** to assemble
-its 109-column feature row, **12 µs** for the band machine, and **1.16 s** writing the
-results to Atlas. The database, not the model, is most of a tick.
+A tick, measured on 2026-08-22: **~43 ms** to score each reading, **14.9 ms** to assemble its
+109-column feature row, **12 µs** for the band machine, and **1.16 s** writing the results to
+Atlas. The database, not the model, is most of a tick.
+
+⚠️ Scoring is a **range**, not a constant: seven samples gave 31.6 · 42.5 · 43.1 · 43.4 ·
+43.9 · 60.4 · 64.7 ms, and the first tick after an idle period is consistently ~50% slower
+than the rest. Read it off the panel rather than quoting one of these.
 
 ⚠️ The "~66 ms to score" that appears in several comments here had never been computed by
 anything — `model_runtime` contained no clock at all. The `assess` span is the first real
