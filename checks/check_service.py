@@ -30,6 +30,44 @@ def call(base, method, path, body=None, timeout=400):
             return failure.code, raw.decode(errors="replace")[:300]
 
 
+def headers_of(base, method, path, body=None, timeout=400):
+    """As `call`, but keeps the response headers. Server-Timing lives there."""
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(
+        base + path, data=data, method=method,
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, dict(response.headers)
+    except urllib.error.HTTPError as failure:
+        return failure.code, dict(failure.headers)
+
+
+def spans(header):
+    """Parse W3C Server-Timing into {name: dur-or-None}.
+
+    `None` means the entry carried no `dur` -- an observation, not a timing.
+    Distinct from 0.0, which would be a measured duration of zero, which is why
+    the checks below test `isinstance(..., float)` rather than truthiness.
+    """
+    out = {}
+    for entry in re.findall(r'(?:[^,"]|"(?:\\.|[^"\\])*")+', header or ""):
+        parts = entry.strip().split(";")
+        name = parts[0].strip()
+        if not name:
+            continue
+        dur = None
+        for part in parts[1:]:
+            key, _, value = part.partition("=")
+            if key.strip().lower() == "dur":
+                try:
+                    dur = float(value.strip())
+                except ValueError:
+                    dur = None
+        out[name] = dur
+    return out
+
+
 results = []
 
 
@@ -162,6 +200,45 @@ else:
     status, again = call(NODE, "GET", f"/patient/{p['patient_id']}")
     show("review readable back", "escalated", (again.get("review") or {}).get("disposition"))
     show("prompt now reviewed", "reviewed", (again.get("prompt") or {}).get("status"))
+
+print("\nA5 -- the pipeline stages are MEASURED, not asserted")
+# The scoring latency this project quotes in three docstrings was never computed
+# anywhere; these spans are the first time it is. So the check is not "is there a
+# number" but "did the tier that did the work produce it".
+_, tick_headers = headers_of(NODE, "POST", "/ward/tick")
+timing = spans(tick_headers.get("Server-Timing", ""))
+print(f"       {tick_headers.get('Server-Timing', '(absent)')}")
+
+for stage in ("collect", "order", "assess", "decide", "rank"):
+    show(f"`{stage}` measured on a tick", True, isinstance(timing.get(stage), float))
+show("`upstream` measured at the Node hop", True, isinstance(timing.get("upstream"), float))
+show("`queue` wait measured on the model thread", True, isinstance(timing.get("queue"), float))
+
+# NESTING. `upstream` contains every model-service stage, so it can only be
+# larger. Inverted, the panel would be drawing a tree that is not one -- and the
+# indentation is what stops a reader adding a 26 s generation to a 26 s request.
+inner = sum(timing[s] for s in ("collect", "order", "assess", "decide", "rank", "queue")
+            if isinstance(timing.get(s), float))
+show("upstream >= the stages it contains", True,
+     isinstance(timing.get("upstream"), float) and timing["upstream"] >= inner,
+     f"(upstream {timing.get('upstream')}, stages {inner:.1f})")
+
+# The whole point of PM-CLIN-001 here: a stage that did not run must be ABSENT.
+# `/ward/tick` never explains, so these must not appear at all -- not as zero.
+absent = [s for s in ("explain", "ground", "load", "baseline", "floor") if s in timing]
+show("stages that did not run are absent, not zero", [], absent)
+
+print("\nA5 -- the template path reports its own generation time")
+_, expl_headers = headers_of(
+    NODE, "POST", f"/patient/{patient}/explain", {"use_llm": False})
+expl_timing = spans(expl_headers.get("Server-Timing", ""))
+print(f"       {expl_headers.get('Server-Timing', '(absent)')}")
+show("`baseline` measured on the template path", True,
+     isinstance(expl_timing.get("baseline"), float))
+show("`ground` measured on the template path", True,
+     isinstance(expl_timing.get("ground"), float))
+show("the 7B was not loaded for a template explanation", [],
+     [s for s in ("load", "explain") if s in expl_timing])
 
 print(f"\n{sum(results)}/{len(results)} checks passed")
 raise SystemExit(0 if all(results) else 1)

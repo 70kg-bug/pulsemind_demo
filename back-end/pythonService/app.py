@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from http import HTTPStatus
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +26,8 @@ import explanation as expl
 import contract
 import model_runtime as rt
 import synthetic_ward as sw
+from stopwatch import NULL as NO_TIMINGS
+from stopwatch import Timings
 from pipeline import config as C
 
 # Provenance captured at startup, when the model thread is idle by construction,
@@ -128,6 +130,40 @@ class ExplainRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
+def _measured() -> Timings:
+    """Start measuring this request, and note how busy the model thread was.
+
+    Depth is read BEFORE the work is enqueued, so it answers "what did this
+    request arrive into" rather than "what did it cause". Read-only -- a probe
+    that enqueues is the failure PM-HEALTH-001 exists to prevent.
+    """
+    timings = Timings()
+    timings.mark("depth", f"{rt.queue_depth()}/{rt.MAX_QUEUE_DEPTH}")
+    return timings
+
+
+def _emit(response: Response, http: Request, timings: Timings) -> None:
+    """Put the measured spans and the caller's request id on the response.
+
+    W3C Server-Timing rather than a payload field, so `contract/clinical.ts`
+    stays clinical: an operational figure in there would also have to be declared
+    in the Mongoose schema to survive a save (PM-VER-003), for a number nobody
+    wants persisted.
+
+    The header is set only when something was measured. An empty one is an entry
+    that means nothing, and a reader cannot tell it from a stage that took no time.
+    """
+    header = timings.to_header()
+    if header:
+        response.headers["Server-Timing"] = header
+    # Node generates this id, forwards it here, and until now nothing on this
+    # side read it -- so a 23 s call could not be matched to the work it caused.
+    # Echoing it is what makes the id mean the same thing on both sides.
+    request_id = http.headers.get("x-request-id")
+    if request_id:
+        response.headers["X-Request-Id"] = request_id
+
+
 def _bed(patient_id: str) -> sw.Bed:
     for bed in sw.WARD:
         if bed.patient_id == patient_id:
@@ -136,22 +172,28 @@ def _bed(patient_id: str) -> sw.Bed:
 
 
 def _score_tick(bed: sw.Bed, tick: int, at: datetime, seed: int,
-                state: dict | None, offline: set[str], last_band: str | None) -> dict:
+                state: dict | None, offline: set[str], last_band: str | None,
+                timings: Timings = NO_TIMINGS) -> dict:
     """Generate, score, band and map one reading for one bed."""
-    context = sw.context_for(bed, at - sw.TICK * tick)
-    reading = sw.reading_for(bed, tick, at, seed)
+    # `collect` is stage 1 of the published pipeline: what the bedside produces,
+    # before anything has been ordered or weighed. Here it is manufactured
+    # rather than received, which is the one place this demo stands in for a
+    # hospital interface -- so the span measures the stand-in, not an HL7 feed.
+    with timings.span("collect"):
+        context = sw.context_for(bed, at - sw.TICK * tick)
+        reading = sw.reading_for(bed, tick, at, seed)
 
-    # An offline source stops refreshing: values age rather than vanish, which
-    # is what pushes a reading toward the floor.
-    if offline:
-        supplied = _parameters_still_arriving(bed, offline)
-        reading = sw.Reading(observed_at=reading.observed_at,
-                             values={k: v for k, v in reading.values.items()
-                                     if k in supplied},
-                             ventilator_mode=reading.ventilator_mode,
-                             infusions=reading.infusions)
+        # An offline source stops refreshing: values age rather than vanish,
+        # which is what pushes a reading toward the floor.
+        if offline:
+            supplied = _parameters_still_arriving(bed, offline)
+            reading = sw.Reading(observed_at=reading.observed_at,
+                                 values={k: v for k, v in reading.values.items()
+                                         if k in supplied},
+                                 ventilator_mode=reading.ventilator_mode,
+                                 infusions=reading.infusions)
 
-    record, next_state = rt.score(context, reading, state)
+    record, next_state = rt.score(context, reading, state, timings)
     devices = sw.devices_for(bed, at, offline)
 
     published = contract.assessment(
@@ -261,12 +303,13 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 @app.post("/ward/seed")
-def seed(request: SeedRequest) -> dict:
+def seed(request: SeedRequest, http: Request, response: Response) -> dict:
     """Build the ward and score its backfilled history, oldest reading first.
 
     Bands come from pushing real scores through the real hysteresis machine in
     order; thresholding them afterwards would fabricate the `demoting` stretch.
     """
+    timings = _measured()
     runtime = rt.runtime()
     sw.check_levels(runtime.assets)
 
@@ -280,7 +323,8 @@ def seed(request: SeedRequest) -> dict:
         state, last_band, history = None, None, []
         for tick in range(request.backfill_ticks):
             at = start + sw.TICK * tick
-            step = _score_tick(bed, tick, at, request.seed, state, set(), last_band)
+            step = _score_tick(bed, tick, at, request.seed, state, set(), last_band,
+                               timings)
             state = step["stay_state"]
             if step["assessment"]["assessment_status"] == "assessed":
                 last_band = step["assessment"]["risk_level"]
@@ -295,12 +339,13 @@ def seed(request: SeedRequest) -> dict:
             "last_band": last_band,
             "context": _patient_context(bed),
         })
+    _emit(response, http, timings)
     return {"seeded_at": now.isoformat(), "ticks": request.backfill_ticks,
             "patients": patients}
 
 
 @app.post("/ward/tick")
-def tick(request: TickRequest) -> dict:
+def tick(request: TickRequest, http: Request, response: Response) -> dict:
     """One more reading per bed, from the state Node read back out of Mongo.
 
     The reading time continues each stay's OWN hourly grid rather than the wall
@@ -326,6 +371,7 @@ def tick(request: TickRequest) -> dict:
     # above the new one, freezing the bed on screen with nothing logged. Done as
     # a pre-pass because inside the loop a bad eighth bed costs seven GPU
     # scorings before the refusal, on every retry.
+    timings = _measured()
     schedule = []
     for bed_state in request.beds:
         bed = _bed(bed_state.patient_id)          # 404s here, before any scoring
@@ -347,16 +393,24 @@ def tick(request: TickRequest) -> dict:
         times.append(at)
         step = _score_tick(bed, bed_state.tick + 1, at, request.seed,
                            bed_state.stay_state, set(bed_state.offline_devices),
-                           bed_state.last_band)
+                           bed_state.last_band, timings)
         out.append(step)
     # The ward's clock is the NEWEST reading across the beds: per-bed times differ
     # when one stay started later, and the board compares its own "now" against
     # the newest of them.
+    _emit(response, http, timings)
     return {"at": max(times).isoformat(), "patients": out}
 
 
+def _load_generator(timings: Timings):
+    """Load the 7B, timing the load itself. Runs ON the model thread."""
+    with timings.span("load", C.LLM_MODEL_ID):
+        return expl.generator()
+
+
 @app.post("/warmup")
-def warmup(request: WarmupRequest = WarmupRequest()) -> dict:
+def warmup(http: Request, response: Response,
+           request: WarmupRequest = WarmupRequest()) -> dict:
     """Load the 7B now, so the first explanation of a session is not the slow one.
 
     Goes through the model thread like everything else that touches CUDA, so it
@@ -365,10 +419,16 @@ def warmup(request: WarmupRequest = WarmupRequest()) -> dict:
     explanation attached to a reading nobody asked about. Measured cold and warm
     figures are in `.claude/rules/demo.md`, in one place, once.
     """
+    timings = _measured()
     if expl.generator_loaded():
+        _emit(response, http, timings)
         return {"explainer": "loaded", "was_loaded": True}
     try:
-        rt.on_model_thread(expl.generator)
+        # Measured INSIDE the model thread, not around the call. Around it, the
+        # span would also contain the queue wait that `_on_model_thread` reports
+        # separately, and two overlapping entries in one header cannot be summed
+        # by a reader who has no way to know one nests in the other.
+        rt.on_model_thread(_load_generator, timings, timings=timings)
     except rt.Overloaded:
         raise                       # the 503 + Retry-After handler owns this one
     except expl.InsufficientVRAM as refusal:
@@ -386,24 +446,28 @@ def warmup(request: WarmupRequest = WarmupRequest()) -> dict:
             503, f"the explainer did not load: {type(failure).__name__}") from failure
     # Observed, not asserted: `generator()` returning without loading would make
     # a hard-coded "loaded" a false record.
+    _emit(response, http, timings)
     return {"explainer": "loaded" if expl.generator_loaded() else "unavailable",
             "was_loaded": False}
 
 
 @app.post("/explain/patient")
-def explain_patient(request: ExplainRequest) -> dict:
+def explain_patient(request: ExplainRequest, http: Request,
+                    response: Response) -> dict:
     """Explain a stored reading, in plain language.
 
     Its own endpoint because it is three orders of magnitude slower: 66 ms to
     score, 18-23 s to write. The record arrives from Node and is never rebuilt --
     rebuilding re-scores at a new `now` and explains a state no row ever had.
     """
+    timings = _measured()
     bed = _bed(request.patient_id)
     if not request.record.get("telemetry"):
         raise HTTPException(422, "record is not a scored reading")
     # The guard belongs where the policy is. Without it Node would generate an
     # explanation and overwrite the fixed withheld string on the assessment.
     if bed.withhold_explanation:
+        _emit(response, http, timings)
         return {**contract.unavailable_explanation(),
                 "findings": [], "generator": None, "seconds": 0.0}
 
@@ -411,7 +475,10 @@ def explain_patient(request: ExplainRequest) -> dict:
 
     # On the model thread, not this request's worker. The generator is a second
     # CUDA consumer and two contexts on two threads segfault the process.
-    return rt.on_model_thread(generate_explanation, request.record, request.use_llm)
+    result = rt.on_model_thread(generate_explanation, request.record,
+                                request.use_llm, timings, timings=timings)
+    _emit(response, http, timings)
+    return result
 
 
 def _patient_context(bed: sw.Bed) -> dict:

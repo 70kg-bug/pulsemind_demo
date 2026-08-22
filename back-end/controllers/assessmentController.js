@@ -20,6 +20,12 @@ const req_id = (res) => res.getHeader('X-Request-Id');
 const fromUpstream = (res, err, what) => {
   if (err.response) {
     const status = err.response.status;
+    // The model service says HOW saturated it was, and this used to be dropped
+    // here -- so a 503 told the browser to come back in 25 s without ever saying
+    // it was a queue that refused. It is capacity, not the caller's quota, and
+    // the depth is the number that says so.
+    const depth = err.response.data?.queue_depth;
+    if (depth !== undefined) res.mark?.('refused', `queue depth ${depth}`);
     return res.status(status === 503 ? 503 : (status >= 400 && status < 500 ? status : 502))
       .type('application/problem+json')
       .set(err.response.headers?.['retry-after']

@@ -117,4 +117,9 @@ assessmentSchema.index({ patient_id: 1, assessed_at: -1 });
 // One assessment per patient per reading time; a replayed tick must not double.
 assessmentSchema.index({ patient_id: 1, assessed_at: 1 }, { unique: true });
 
+// Every query through this model reports a `mongo` span. Applied here rather
+// than globally: a global plugin only reaches schemas compiled after it runs,
+// so it stops timing silently when require order changes.
+assessmentSchema.plugin(require('../config/queryTiming'));
+
 module.exports = mongoose.model('Assessment', assessmentSchema);

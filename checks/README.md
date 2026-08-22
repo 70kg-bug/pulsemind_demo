@@ -39,6 +39,13 @@ one); the board is always a list, never a 204 with a stripped body; a refusal ca
 prompt field; no cohort default carries an age; no contributor is both `documentation` and
 `is_imputed`.
 
+**B4** adds the telemetry contract, and one of its assertions is not a formality. The
+`mongo` span is recorded by a Mongoose plugin that resolves the current response out of an
+`AsyncLocalStorage` store — if that context did not survive the driver's async boundary the
+plugin would find nothing and record nothing, **silently, with every other check still
+green**. `GET /ward` reads Mongo and never touches the model service, so this section proves
+it without a GPU.
+
 **`check_conventions.py`** — the API conventions, tested by their failure modes: an absurd
 `backfill_ticks` is refused rather than freezing the board; an unknown field is rejected
 rather than silently dropped; `/healthz` answers *while* the model thread is busy; a
@@ -47,15 +54,23 @@ saturated queue returns 503 with `Retry-After`; an upstream 422 surfaces as 4xx 
 records `attributed: false`; every response carries a distinct request id; and no patient
 identifier reaches the request log.
 
-**`check_service.py`** — seed → tick → explain, 23 assertions. The one that matters most:
+**`check_service.py`** — seed → tick → explain, 35 assertions. The one that matters most:
 the explanation's dwell phrase must equal the stored assessment's `readings_in_state`. If
 it does not, the service re-scored the reading instead of explaining the stored one, and
 grounding cannot catch that because both sides of the check would be wrong together.
 
-Six of the 23 cover the citation contract, and the read-back is the point rather than the
+Six of the 35 cover the citation contract, and the read-back is the point rather than the
 write: the passages live on the **explanation**, not the assessment, so Mongoose strict mode
 will silently drop them if `explanationSchema` ever stops declaring them — which is how a
 field can reach the API and vanish on save.
+
+Twelve more (**A5**) cover the `Server-Timing` spans behind the pipeline panel. Two of those
+are the ones with teeth. `upstream >= the stages it contains` checks that the span tree the
+panel indents is actually a tree — inverted, a reader would be adding a 26 s generation to
+the 26 s request that contains it. And `stages that did not run are absent, not zero` is
+PM-CLIN-001 applied to a measurement: `/ward/tick` never explains, so `explain` and `load`
+must not appear at all. A `0 ms` beside a stage name is indistinguishable from a real
+measurement of a fast one, so a failed measurement would read as a successful one.
 
 **`floor_margin.py`** — the bed that demonstrates the data-sufficiency floor refuses on
 *every* reading, with margin. It once refused on some and published LOW on others while its

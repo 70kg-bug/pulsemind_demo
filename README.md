@@ -184,6 +184,28 @@ generation time scales hard with what remains: **13.7 s at 642 MiB free, 77.3 s 
 Screen recording on an NVENC encoder competes for exactly that memory — record with a CPU
 encoder (x264) while demonstrating.
 
+### Showing the pipeline
+
+**Pipeline** in the feed bar opens a dock listing every API call the dashboard makes, with
+the time each stage of the pipeline actually took — feature assembly, scoring, the band
+decision, generation, the Mongo write. Closed, it costs the board no height at all, which
+is why the control lives in the existing bar rather than in a second one.
+
+Every figure is measured by the tier that did the work and returned on a W3C
+`Server-Timing` header. **A stage that did not run shows as absent, never as `0 ms`** — the
+two are indistinguishable on screen, so a failed measurement would read as a successful
+one. The spans are indented as they nest: the model service's stages sit inside the Node
+hop, which sits inside the browser round trip, so their durations are not meant to be added
+up.
+
+A tick, measured on 2026-08-22: **60.4 ms** to score each reading, **14.9 ms** to assemble
+its 109-column feature row, **12 µs** for the band machine, and **1.16 s** writing the
+results to Atlas. The database, not the model, is most of a tick.
+
+⚠️ The "~66 ms to score" that appears in several comments here had never been computed by
+anything — `model_runtime` contained no clock at all. The `assess` span is the first real
+measurement. It came out close, which is luck rather than evidence; quote the span.
+
 ### Confirming all three are up
 
 ```powershell

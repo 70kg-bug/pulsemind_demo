@@ -16,11 +16,14 @@ import type {
   Explanation,
   ParameterHistoryPoint,
   ParameterName,
+  PatientContext,
   RefusedAssessment,
   RiskBand,
   ScoredAssessment,
 } from '@contract/clinical'
 import { isScored } from '@contract/clinical'
+
+import * as telemetry from './telemetry'
 import { bandRank } from './bands'
 
 /** Relative, because Vite proxies /api to the Node service in development. */
@@ -48,19 +51,59 @@ async function failure(path: string, response: Response): Promise<Error> {
   return new Error(detail || `${path} returned ${response.status}`)
 }
 
-async function readJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API}${path}`)
+/**
+ * Every request the dashboard makes passes through here, which is why the
+ * telemetry log can be honest about coverage: one place to instrument, and a
+ * call that skipped it would be a call the panel silently never showed.
+ *
+ * `route` is the TEMPLATE, passed in rather than derived from `path`. Deriving
+ * it would mean pattern-matching identifiers back out of a URL, and getting
+ * that subtly wrong puts a patient id on screen. The server logs the matched
+ * route for the same reason (PM-LOG-001).
+ */
+async function readJson<T>(path: string, route: string): Promise<T> {
+  const settle = telemetry.begin('GET', route)
+  const started = performance.now()
+  let response: Response
+  try {
+    response = await fetch(`${API}${path}`)
+  } catch (transportFailure) {
+    // A refused connection never produces a response, and a log that only shows
+    // completed calls hides exactly the case someone is debugging.
+    settle({ clientMs: performance.now() - started, failed: true })
+    throw transportFailure
+  }
+  settle({
+    status: response.status,
+    headers: response.headers,
+    clientMs: performance.now() - started,
+    failed: !response.ok,
+  })
   if (!response.ok) {
     throw await failure(path, response)
   }
   return response.json() as Promise<T>
 }
 
-async function sendJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+async function sendJson<T>(path: string, route: string, body: unknown): Promise<T> {
+  const settle = telemetry.begin('POST', route)
+  const started = performance.now()
+  let response: Response
+  try {
+    response = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (transportFailure) {
+    settle({ clientMs: performance.now() - started, failed: true })
+    throw transportFailure
+  }
+  settle({
+    status: response.status,
+    headers: response.headers,
+    clientMs: performance.now() - started,
+    failed: !response.ok,
   })
   if (!response.ok) {
     throw await failure(path, response)
@@ -74,14 +117,27 @@ async function sendJson<T>(path: string, body: unknown): Promise<T> {
 
 /** Every bed's current assessment. */
 export function fetchWard(): Promise<Assessment[]> {
-  return readJson<Assessment[]>('/ward')
+  return readJson<Assessment[]>('/ward', '/ward')
 }
 
 /** One patient's recent assessments, oldest first. `Assessment[]`, not
  *  `ScoredAssessment[]`: a stay that dipped below the floor has refusals in its
  *  history and the endpoint returns them. Consumers narrow first. */
 export function fetchHistory(patientId: string, limit = 14): Promise<Assessment[]> {
-  return readJson<Assessment[]>(`/patient/${patientId}/history?limit=${limit}`)
+  return readJson<Assessment[]>(
+    `/patient/${patientId}/history?limit=${limit}`,
+    '/patient/:id/history',
+  )
+}
+
+/** Borrowed demographics and comorbidities. Recorded context, not a prediction.
+ *
+ *  Here rather than hand-rolled in the hook that uses it: it used to call
+ *  `fetch` directly, which meant it neither parsed a problem+json body nor
+ *  appeared in the telemetry log — one invisible call is enough to make the
+ *  log's coverage a claim rather than a property. */
+export function fetchPatientContext(patientId: string): Promise<PatientContext> {
+  return readJson<PatientContext>(`/patient/${patientId}/context`, '/patient/:id/context')
 }
 
 /** One parameter's charting history, oldest first. */
@@ -92,6 +148,7 @@ export function fetchParameterHistory(
 ): Promise<ParameterHistoryPoint[]> {
   return readJson<ParameterHistoryPoint[]>(
     `/patient/${patientId}/parameter/${parameterName}?limit=${limit}`,
+    '/patient/:id/parameter/:name',
   )
 }
 
@@ -102,7 +159,7 @@ export function fetchParameterHistory(
 /** Advance every bed by one reading. `at` is the ward's own clock, which a tick
  *  moves forward an hour — not the wall clock. */
 export function tickWard(): Promise<{ at: string }> {
-  return sendJson('/ward/tick', {})
+  return sendJson('/ward/tick', '/ward/tick', {})
 }
 
 /** Rebuild the ward from nothing.
@@ -111,14 +168,14 @@ export function tickWard(): Promise<{ at: string }> {
  *  server refuses unless PM_ALLOW_DESTRUCTIVE is set. Why the demo passes the
  *  backfill it does is at `DEMO_BACKFILL`, not here. */
 export function seedWard(backfillTicks: number): Promise<{ patients: number }> {
-  return sendJson('/ward/seed', { backfill_ticks: backfillTicks })
+  return sendJson('/ward/seed', '/ward/seed', { backfill_ticks: backfillTicks })
 }
 
 /** Load the 7B before anyone asks for an explanation. Stores nothing: the
  *  alternative, explaining some bed to warm the weights, leaves a real
  *  explanation attached to a reading nobody asked about. */
 export function warmExplainer(): Promise<{ explainer: string; was_loaded: boolean }> {
-  return sendJson('/ward/warmup', {})
+  return sendJson('/ward/warmup', '/ward/warmup', {})
 }
 
 /** Switch input sources off, or back on.
@@ -132,7 +189,10 @@ export function setDevicesOffline(
   deviceIds: string[],
   offline: boolean,
 ): Promise<{ offline_devices: string[] }> {
-  return sendJson(`/patient/${patientId}/device`, { device_ids: deviceIds, offline })
+  return sendJson(`/patient/${patientId}/device`, '/patient/:id/device', {
+    device_ids: deviceIds,
+    offline,
+  })
 }
 
 /** Ask the local model to write the explanation. Takes tens of seconds.
@@ -148,7 +208,7 @@ export function generateExplanation(
   patientId: string,
   options: { assessedAt?: string; useLlm?: boolean } = {},
 ): Promise<Explanation> {
-  return sendJson(`/patient/${patientId}/explain`, {
+  return sendJson(`/patient/${patientId}/explain`, '/patient/:id/explain', {
     ...(options.assessedAt ? { assessed_at: options.assessedAt } : {}),
     ...(options.useLlm === false ? { use_llm: false } : {}),
   })
@@ -160,7 +220,7 @@ export function reviewPrompt(
   disposition: string,
   note?: string,
 ): Promise<unknown> {
-  return sendJson(`/prompt/${promptId}/review`, { disposition, note })
+  return sendJson(`/prompt/${promptId}/review`, '/prompt/:id/review', { disposition, note })
 }
 
 // ---------------------------------------------------------------------------

@@ -23,4 +23,9 @@ const stayStateSchema = new Schema({
   context: { type: Schema.Types.Mixed, default: null }
 }, { timestamps: true });
 
+// Every query through this model reports a `mongo` span. Applied here rather
+// than globally: a global plugin only reaches schemas compiled after it runs,
+// so it stops timing silently when require order changes.
+stayStateSchema.plugin(require('../config/queryTiming'));
+
 module.exports = mongoose.model('StayState', stayStateSchema);

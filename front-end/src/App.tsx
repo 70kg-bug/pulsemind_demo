@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { WardProvider } from './data/WardProvider'
 import { AppHeader } from './components/chrome/AppHeader'
 import { ErrorBoundary } from './components/chrome/ErrorBoundary'
 import { SafetyFooter } from './components/chrome/SafetyFooter'
 import { SimulationBar } from './components/chrome/SimulationBar'
+import { TelemetryDock } from './components/chrome/TelemetryDock'
 import { PatientOverviewBoard } from './screens/PatientOverviewBoard'
 import { PatientDetail } from './screens/PatientDetail'
 import { ParameterDetail } from './screens/ParameterDetail'
@@ -34,12 +36,20 @@ import { ParameterDetail } from './screens/ParameterDetail'
  * things that can.
  */
 export default function App() {
+  // Lifted out of SimulationBar because the control and the panel are on
+  // opposite sides of <main>. The control lives in the chrome that already
+  // exists, so a closed dock costs the board no height at all.
+  const [pipelineOpen, setPipelineOpen] = useState(false)
+
   return (
     <WardProvider>
       <div className="flex min-h-screen flex-col bg-page xl:fixed xl:inset-0 xl:min-h-0 xl:overflow-hidden">
         <div className="shrink-0">
           <AppHeader />
-          <SimulationBar />
+          <SimulationBar
+            pipelineOpen={pipelineOpen}
+            onTogglePipeline={() => setPipelineOpen((was) => !was)}
+          />
         </div>
         <main className="flex-1 xl:min-h-0 xl:overflow-y-auto">
           <ErrorBoundary>
@@ -54,6 +64,7 @@ export default function App() {
             </Routes>
           </ErrorBoundary>
         </main>
+        <TelemetryDock open={pipelineOpen} onClose={() => setPipelineOpen(false)} />
         <SafetyFooter />
       </div>
     </WardProvider>

@@ -19,6 +19,9 @@ import json
 import time
 from functools import lru_cache
 
+from stopwatch import NULL as NO_TIMINGS
+from stopwatch import Timings
+
 from pipeline import config as C
 from pipeline.core import explain as E
 from pipeline.core import grounding as G
@@ -135,7 +138,8 @@ def generator_loaded() -> bool:
     return _generator is not None
 
 
-def generate_explanation(record: dict, use_llm: bool = True) -> dict:
+def generate_explanation(record: dict, use_llm: bool = True,
+                         timings: Timings = NO_TIMINGS) -> dict:
     """Explain one assessment, or say plainly why it cannot be explained.
 
     Returns the contract's Explanation shape plus the findings and timing, so a
@@ -147,7 +151,8 @@ def generate_explanation(record: dict, use_llm: bool = True) -> dict:
     # Below the sufficiency floor there is nothing honest to say, and
     # build_payload() raises rather than letting a generator try.
     try:
-        E.build_payload(record, pol)
+        with timings.span("floor"):
+            E.build_payload(record, pol)
     except E.InsufficientData as reason:
         return {"status": "unavailable",
                 "explanation_text": C.INSUFFICIENT_DATA_TEXT,
@@ -156,14 +161,32 @@ def generate_explanation(record: dict, use_llm: bool = True) -> dict:
                 "withheld_because": str(reason),
                 "seconds": round(time.perf_counter() - started, 3)}
 
-    baseline = E.baseline(record, pol)
+    # ALWAYS computed, on both paths: it is the substitute a failed grounding
+    # check falls back to, so it cannot wait until one is needed. Its own span,
+    # not `explain`, because aggregating the deterministic floor and the 7B into
+    # one entry would report a 26 s generation and a 2 ms template as one number.
+    with timings.span("baseline"):
+        baseline = E.baseline(record, pol)
     if not use_llm:
-        return _result("generated", baseline, check(record, baseline, pol),
+        with timings.span("ground"):
+            findings = check(record, baseline, pol)
+        return _result("generated", baseline, findings,
                        generator_name="template", started=started, fell_back=False)
 
     try:
-        block = E.explain(record, pol, generator=generator(),
-                          generator_name=C.LLM_MODEL_ID)
+        # COLD LOAD AND GENERATION ARE DIFFERENT NUMBERS -- 27.9 s to load
+        # against 18-23 s to write -- and one figure covering both cannot tell a
+        # reader which they just watched. The span is recorded only when a load
+        # actually happens: a warm call has no load to report, and a 0 ms entry
+        # would be a stage that did not run wearing the costume of one that did.
+        if generator_loaded():
+            gen = generator()
+        else:
+            with timings.span("load", C.LLM_MODEL_ID):
+                gen = generator()
+        with timings.span("explain", C.LLM_MODEL_ID):
+            block = E.explain(record, pol, generator=gen,
+                              generator_name=C.LLM_MODEL_ID)
     except Exception as failure:                      # noqa: BLE001
         # A generator that cannot load must not take the score down with it.
         # Band, score, inputs and contributors all remain available.
@@ -175,12 +198,15 @@ def generate_explanation(record: dict, use_llm: bool = True) -> dict:
                 "seconds": round(time.perf_counter() - started, 3)}
 
     text = block["text"]
-    findings = check(record, text, pol)
+    with timings.span("ground"):
+        findings = check(record, text, pol)
     violations = [f for f in findings if f.severity == "violation"]
     if violations:
         # Substitute rather than warn. A grounded-but-wrong sentence in a
         # clinical voice is worse than a plainer one that is right.
-        return _result("generated", baseline, check(record, baseline, pol),
+        with timings.span("ground"):
+            baseline_findings = check(record, baseline, pol)
+        return _result("generated", baseline, baseline_findings,
                        generator_name="template", started=started, fell_back=True,
                        rejected=[f.to_json() for f in violations])
     return _result("generated", text, findings,

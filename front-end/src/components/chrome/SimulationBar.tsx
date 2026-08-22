@@ -4,6 +4,7 @@ import { useWard } from '../../data/WardProvider'
 import { seedWard, warmExplainer } from '../../data/feed'
 import { STREAM_CADENCES } from '../../hooks/useWardStream'
 import { cn } from '../../lib/cn'
+import { TelemetryToggle } from './TelemetryDock'
 
 /**
  * Backfill used by "Restart ward".
@@ -32,7 +33,13 @@ const DEMO_BACKFILL = 4
  * ward off the bottom of the screen to hold controls no clinician will ever see.
  * One line of chrome costs ~40px and is reachable without scrolling.
  */
-export function SimulationBar() {
+export function SimulationBar({
+  pipelineOpen,
+  onTogglePipeline,
+}: {
+  pipelineOpen: boolean
+  onTogglePipeline: () => void
+}) {
   const { stream, refresh } = useWard()
   const [busy, setBusy] = useState<'seed' | 'warm' | null>(null)
   // ARMED, NOT TIMED. Restarting deletes every assessment, prompt and clinician
@@ -105,8 +112,8 @@ export function SimulationBar() {
           className={cn(button, 'border-chrome-ink/40 text-chrome-ink hover:border-chrome-ink')}
         >
           {stream.streaming
-            ? <><Pause size={11} strokeWidth={2.5} /> Pause</>
-            : <><Play size={11} strokeWidth={2.5} /> Stream ward</>}
+            ? <><Pause size={12} strokeWidth={2.5} /> Pause</>
+            : <><Play size={12} strokeWidth={2.5} /> Stream ward</>}
         </button>
 
         <button
@@ -120,7 +127,7 @@ export function SimulationBar() {
               : 'border-chrome-rule text-chrome-ink-dim hover:text-chrome-ink',
           )}
         >
-          <RotateCcw size={11} strokeWidth={2.5} />
+          <RotateCcw size={12} strokeWidth={2.5} />
           {busy === 'seed' ? 'Rebuilding…' : armed ? 'Delete ward and rebuild?' : 'Restart'}
         </button>
 
@@ -140,9 +147,11 @@ export function SimulationBar() {
           disabled={busy !== null}
           className={cn(button, 'border-chrome-rule text-chrome-ink-dim hover:text-chrome-ink')}
         >
-          <Flame size={11} strokeWidth={2.5} />
+          <Flame size={12} strokeWidth={2.5} />
           {busy === 'warm' ? 'Loading…' : 'Warm explainer'}
         </button>
+
+        <TelemetryToggle open={pipelineOpen} onToggle={onTogglePipeline} />
 
         <div className="flex shrink-0 items-center gap-1">
           {STREAM_CADENCES.map((ms) => (

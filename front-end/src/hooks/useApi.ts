@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Assessment, ParameterHistoryPoint, ParameterName, PatientContext } from '@contract/clinical'
-import { fetchHistory, fetchParameterHistory } from '../data/feed'
+import { fetchHistory, fetchParameterHistory, fetchPatientContext } from '../data/feed'
 
 /**
  * Small fetch-on-mount hooks, one per thing a screen needs. Plain useState and
@@ -96,10 +96,7 @@ export function useParameterHistory(
 /** Borrowed demographics and comorbidities. Recorded context, not a prediction. */
 export function usePatientContext(patientId: string) {
   return useFetch<PatientContext>(
-    () => fetch(`/api/patient/${patientId}/context`).then((r) => {
-      if (!r.ok) throw new Error(`context returned ${r.status}`)
-      return r.json() as Promise<PatientContext>
-    }),
+    () => fetchPatientContext(patientId),
     [patientId],
     patientId,
   )

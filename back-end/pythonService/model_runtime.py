@@ -16,6 +16,10 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
+
+from stopwatch import NULL as NO_TIMINGS
+from stopwatch import Timings
 
 from pipeline import config as C
 from pipeline.core import bands as B
@@ -88,7 +92,12 @@ class Overloaded(Exception):
 
 def _worker() -> None:
     while True:
-        fn, args, future = _WORK.get()
+        fn, args, future, timings, queued_at = _WORK.get()
+        # THE WAIT IS MEASURED HERE because only this thread knows when the item
+        # came off the queue. Taken on the request thread it would be
+        # indistinguishable from the work itself, and queue wait is the one
+        # figure that says "the GPU was busy" rather than "the model is slow".
+        timings.add("queue", (perf_counter() - queued_at) * 1000.0)
         if future.set_running_or_notify_cancel():
             try:
                 future.set_result(fn(*args))
@@ -113,11 +122,18 @@ SCORE_TIMEOUT_S = 90.0
 EXPLAIN_TIMEOUT_S = 240.0
 
 
-def _on_model_thread(fn, *args, timeout: float = SCORE_TIMEOUT_S):
-    """Run fn on the one thread that is allowed to touch the model."""
+def _on_model_thread(fn, *args, timeout: float = SCORE_TIMEOUT_S,
+                     timings: Timings = NO_TIMINGS):
+    """Run fn on the one thread that is allowed to touch the model.
+
+    `timings` rides in the queue tuple rather than in a ContextVar: the work
+    runs on the model thread, which is shared by every concurrent request, so a
+    thread-local would attribute one request's time to another. The request
+    thread is blocked on the future throughout, so the two never write at once.
+    """
     future: Future = Future()
     try:
-        _WORK.put((fn, args, future), block=False)
+        _WORK.put((fn, args, future, timings, perf_counter()), block=False)
     except queue.Full:
         raise Overloaded(_WORK.qsize()) from None
     return future.result(timeout=timeout)
@@ -132,13 +148,13 @@ def thread_alive() -> bool:
     return _MODEL_THREAD.is_alive()
 
 
-def on_model_thread(fn, *args):
+def on_model_thread(fn, *args, timings: Timings = NO_TIMINGS):
     """Public: run anything that touches CUDA on the model thread.
 
     The 7B comes through here too -- two CUDA contexts on two threads segfault
     the interpreter (exit 139) mid-load. Generating blocks scoring for 18-23 s.
     """
-    return _on_model_thread(fn, *args, timeout=EXPLAIN_TIMEOUT_S)
+    return _on_model_thread(fn, *args, timeout=EXPLAIN_TIMEOUT_S, timings=timings)
 
 
 def _load() -> Runtime:
@@ -190,32 +206,48 @@ def snapshot(features: StayFeatures, stepper: B.BandStepper, origin: datetime) -
     }
 
 
-def score(context: PatientContext, reading: Reading, state: dict | None) -> tuple[dict, dict]:
+def score(context: PatientContext, reading: Reading, state: dict | None,
+          timings: Timings = NO_TIMINGS) -> tuple[dict, dict]:
     """One reading in, one s17-shaped record and the next state out.
 
     s17-shaped is the contract `verify.py` checks and `core/explain.py` consumes;
     `contract.py` maps it to the display shape.
+
+    `timings` is passed twice on purpose: once so `_on_model_thread` can measure
+    the queue wait on the way in, and once as an argument to `_score` so the
+    stages inside it can measure themselves.
     """
-    return _on_model_thread(_score, context, reading, state)
+    return _on_model_thread(_score, context, reading, state, timings,
+                            timings=timings)
 
 
-def _score(context: PatientContext, reading: Reading, state: dict | None) -> tuple[dict, dict]:
+def _score(context: PatientContext, reading: Reading, state: dict | None,
+           timings: Timings = NO_TIMINGS) -> tuple[dict, dict]:
     rt = _load()
-    features, stepper = _restore_stay(context, state)
-    origin = (datetime.fromisoformat(state["origin"]) if state
-              else reading.observed_at)
 
-    frame = features.push(reading)
-    calibrated = float(rt.scorer.score(frame)[0])
-    contributions, bias = rt.scorer.contributions(frame)
+    # The span names are the stages of the published pipeline (docs figure 3):
+    # collect, order in time, assess, decide the level, explain. `rank` is the
+    # first half of explain -- ranking what drove the result -- and happens here
+    # because it needs the frame and the contributions, which do not leave.
+    with timings.span("order"):
+        features, stepper = _restore_stay(context, state)
+        origin = (datetime.fromisoformat(state["origin"]) if state
+                  else reading.observed_at)
+        frame = features.push(reading)
 
-    # Minutes on a consistent origin, as BandStepper.push expects; the origin
-    # travels in the snapshot so it survives a restart.
-    minutes = (reading.observed_at - origin).total_seconds() / 60.0
-    view = stepper.push(calibrated, minutes)
+    with timings.span("assess"):
+        calibrated = float(rt.scorer.score(frame)[0])
+        contributions, bias = rt.scorer.contributions(frame)
 
-    attribution = R.attribution(frame, contributions[0], float(bias[0]), rt.assets)
-    telemetry = R.telemetry_from_frame(frame, rt.assets)
+    with timings.span("decide"):
+        # Minutes on a consistent origin, as BandStepper.push expects; the origin
+        # travels in the snapshot so it survives a restart.
+        minutes = (reading.observed_at - origin).total_seconds() / 60.0
+        view = stepper.push(calibrated, minutes)
+
+    with timings.span("rank"):
+        attribution = R.attribution(frame, contributions[0], float(bias[0]), rt.assets)
+        telemetry = R.telemetry_from_frame(frame, rt.assets)
 
     record = {
         "schema_version": C.RISK_SCHEMA_VERSION,

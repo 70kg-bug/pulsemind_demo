@@ -51,4 +51,9 @@ promptSchema.index({ patient_id: 1, raised_at: -1 });
 // At most one prompt per patient per raise time.
 promptSchema.index({ patient_id: 1, raised_at: 1 }, { unique: true });
 
+// Every query through this model reports a `mongo` span. Applied here rather
+// than globally: a global plugin only reaches schemas compiled after it runs,
+// so it stops timing silently when require order changes.
+promptSchema.plugin(require('../config/queryTiming'));
+
 module.exports = mongoose.model('Prompt', promptSchema);
