@@ -71,10 +71,9 @@ def check(record: dict, text: str, pol: E.Policy) -> list[G.Finding]:
 
 #: Free VRAM the 7B needs, from the driver, before the load is allowed to start.
 #:
-#: MEASURED, 2026-09-07. This was a bracket for three weeks -- a segfault at
-#: 6561 MiB free and a success at 6721, with 6700 chosen inside the band and the
-#: comment admitting it was "slightly optimistic". Nobody had watched the card
-#: DURING a load, so the peak was inferred from whether the process survived.
+#: MEASURED, 2026-09-07, having been a bracket before that: a segfault at
+#: 6561 MiB free and a success at 6721 -- inferred from whether the process
+#: survived, because nobody had watched the card DURING a load.
 #:
 #: `bki/pipeline/tools/vram_probe.py` samples the driver at 5 Hz across the load
 #: -- same source, same unit as the check below. Three consecutive loads:
@@ -106,8 +105,9 @@ def check(record: dict, text: str, pol: E.Policy) -> list[G.Finding]:
 #: against 21.7 s, measured. See `LLM_EMBED_DEVICE` in `pipeline/config.py`.
 #:
 #: The VALUE is defined in `pipeline.config`, so this service and the pipeline
-#: stage cannot drift apart -- they did, by 1175 MiB, for three weeks. The
-#: evidence stays here, where the gate that acts on it lives.
+#: stage cannot drift apart -- they did, by 1455 MiB (6700 here against 5.5 GB =
+#: 5245 MiB there), each passing its own check while doing so. The evidence stays
+#: here, where the gate that acts on it lives.
 MIN_FREE_VRAM_MIB = C.LLM_MIN_FREE_VRAM_MIB
 
 
