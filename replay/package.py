@@ -64,7 +64,7 @@ def build_ui() -> Path:
     return build
 
 
-def check_bundle() -> dict:
+def check_bundle(partial: bool) -> dict:
     manifest = json.loads((HERE / "bundle" / "manifest.json").read_text(encoding="utf-8"))
     hours = manifest["hours"]
     for n in range(hours + 1):
@@ -74,9 +74,11 @@ def check_bundle() -> dict:
         (HERE / "bundle" / "hours" / "h00.json.gz").read_bytes()))["patients"].keys()
     missing = [(b, n) for b in beds for n in range(hours + 1)
                if not (HERE / "bundle" / "explanations" / b / f"h{n:02d}.json.gz").exists()]
-    if missing:
+    if missing and not partial:
         raise SystemExit(f"{len(missing)} explanations missing, e.g. {missing[:3]}: "
-                         "run record.py explanations")
+                         "run record.py explanations, or --partial to stage without them")
+    if missing:
+        print(f"  PARTIAL: {len(missing)} explanations missing; Generate answers 503 for them")
     for rel, digest in manifest["files"].items():
         actual = hashlib.sha256((HERE / "bundle" / rel).read_bytes()).hexdigest()
         if actual != digest:
@@ -108,7 +110,8 @@ def leaks(name: str, data: bytes, secrets: list) -> list:
 
 
 def main() -> None:
-    manifest = check_bundle()
+    partial = "--partial" in sys.argv[1:]
+    manifest = check_bundle(partial)
     build = build_ui()
     secrets = live_secrets()
     files = list(members(build))
@@ -119,7 +122,7 @@ def main() -> None:
 
     DIST.mkdir(exist_ok=True)
     stamp = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()[:10]
-    target = DIST / f"pulsemind-replay-{stamp}.tar.gz"
+    target = DIST / f"pulsemind-replay-{stamp}{'-partial' if partial else ''}.tar.gz"
     with tarfile.open(target, "w:gz") as tar:
         for name, data in files:
             info = tarfile.TarInfo(f"pulsemind-replay/{name}")
