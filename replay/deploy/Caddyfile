@@ -15,5 +15,11 @@
 	}
 	# The replay gzips its own JSON and times its own work; Caddy only terminates TLS. It sets
 	# X-Forwarded-Proto: https, which is what makes the replay's session cookie Secure.
-	reverse_proxy 127.0.0.1:8750
+	reverse_proxy 127.0.0.1:8750 {
+		# Caddy drops an idle upstream connection before the replay does (120 s), so it never
+		# reuses one the replay is closing that instant -- a POST that meets that cannot be retried.
+		transport http {
+			keepalive 60s
+		}
+	}
 }

@@ -144,12 +144,22 @@ class Judge:
         if self.raw_cookie is not None:
             req.add_header("Cookie", self.raw_cookie)
         opener = self.opener if self.raw_cookie is None else urllib.request.build_opener()
-        started = time.perf_counter()
-        try:
-            with opener.open(req, timeout=timeout) as res:
-                raw, status, headers = res.read(), res.status, res.headers
-        except urllib.error.HTTPError as failure:
-            raw, status, headers = failure.read(), failure.code, failure.headers
+        # One retry for the network, never for the server: an HTTP status is an answer and is
+        # returned as one. A second network failure is reported as status 0, not raised, so one
+        # stalled connection on a jittery path fails a check instead of ending the run.
+        for attempt in (1, 2):
+            started = time.perf_counter()
+            try:
+                with opener.open(req, timeout=timeout) as res:
+                    raw, status, headers = res.read(), res.status, res.headers
+                break
+            except urllib.error.HTTPError as failure:
+                raw, status, headers = failure.read(), failure.code, failure.headers
+                break
+            except OSError as failure:  # URLError, timeouts and resets are all OSErrors
+                if attempt == 2:
+                    return 0, {"network_error": type(failure).__name__}, {}, \
+                        (time.perf_counter() - started) * 1000
         ms = (time.perf_counter() - started) * 1000
         try:
             parsed = json.loads(raw) if raw else None
@@ -186,7 +196,10 @@ class KeepAliveJudge:
 
     def request(self, method: str, path: str, body=None):
         data = json.dumps(body).encode() if body is not None else None
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        # gzip, as every browser asks: the 24-reading history is ~72 KB as JSON and ~8 KB
+        # compressed, and uncompressed on a long path it measured transfer, not the replay.
+        headers = {"Content-Type": "application/json", "Accept": "application/json",
+                   "Accept-Encoding": "gzip"}
         if self.cookie:
             headers["Cookie"] = self.cookie
         for attempt in (1, 2):  # a kept-alive socket the server closed is retried once, fresh
@@ -203,6 +216,8 @@ class KeepAliveJudge:
                 self.conn = None
                 if attempt == 2:
                     raise
+        if res.getheader("Content-Encoding") == "gzip":
+            raw = gzip.decompress(raw)
         set_cookie = res.getheader("Set-Cookie")
         if set_cookie:
             self.cookie = set_cookie.split(";")[0]
