@@ -40,8 +40,10 @@ FLAGS = {
     "PUBLIC_PULSEMIND_REQUIRE_AUTH": "false",
     "PUBLIC_PULSEMIND_REPLAY": "true",
 }
-SCRIPTS = ("server.py", "run.sh", "stop.sh", "tunnel.sh", "README.md")
-EXECUTABLE = ("run.sh", "stop.sh", "tunnel.sh", "server.py")
+SCRIPTS = ("server.py", "run.sh", "stop.sh", "tunnel.sh", "README.md",
+           "deploy/install.sh", "deploy/Caddyfile", "deploy/caddy.service",
+           "deploy/pulsemind-replay.service")
+EXECUTABLE = ("run.sh", "stop.sh", "tunnel.sh", "server.py", "deploy/install.sh")
 
 
 def build_ui() -> Path:
@@ -90,11 +92,13 @@ def members(build: Path):
     """(archive name, bytes) for everything that ships."""
     for name in SCRIPTS:
         data = (HERE / name).read_bytes()
-        if name.endswith(".sh"):
-            data = data.replace(b"\r\n", b"\n")  # a CRLF shebang line does not run
+        if name.endswith(".sh") or name.startswith("deploy/"):
+            # A CRLF shebang does not run, and systemd and Caddy read these on Linux.
+            data = data.replace(b"\r\n", b"\n")
         yield name, data
     for path in sorted((HERE / "bundle").rglob("*")):
-        if path.is_file():
+        # `.tmp` is record.py mid-write; the renamed file is the only complete one.
+        if path.is_file() and not path.name.endswith(".tmp"):
             yield "bundle/" + path.relative_to(HERE / "bundle").as_posix(), path.read_bytes()
     for path in sorted(build.rglob("*")):
         if path.is_file():

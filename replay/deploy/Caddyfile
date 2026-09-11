@@ -1,0 +1,19 @@
+# Prototype 2 behind a Let's Encrypt certificate for the server's bare IP address.
+# Let's Encrypt issues IP certificates only under the 160-hour "shortlived" profile, and Caddy
+# renews them on its own every couple of days. install.sh replaces @IP@.
+{
+	# A browser sends no SNI when it connects to an IP, so without a default Caddy has no name
+	# to choose a certificate by and the handshake fails.
+	default_sni @IP@
+}
+
+@IP@ {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+	# The replay gzips its own JSON and times its own work; Caddy only terminates TLS. It sets
+	# X-Forwarded-Proto: https, which is what makes the replay's session cookie Secure.
+	reverse_proxy 127.0.0.1:8750
+}

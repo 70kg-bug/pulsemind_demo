@@ -13,11 +13,13 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import http.client
 import http.cookiejar
 import json
 import random
 import re
 import socket
+import ssl
 import statistics
 import subprocess
 import sys
@@ -27,6 +29,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 BUNDLE = HERE / "bundle"
@@ -159,6 +162,51 @@ class Judge:
 
     def api(self, method: str, path: str, body=None, timeout=120):
         return self.request(method, "/api" + path, body, timeout)[:2]
+
+
+class KeepAliveJudge:
+    """One browser for the load check: one connection kept open, as a browser keeps it, and the
+    session cookie carried by hand. urllib opens a fresh TLS connection per request, which on a
+    jittery path measured 110 ms to 1.1 s of connection churn around a 2 ms server response."""
+
+    def __init__(self, base: str):
+        parts = urlsplit(base)
+        self.https = parts.scheme == "https"
+        self.host = parts.hostname
+        self.port = parts.port or (443 if self.https else 80)
+        self.conn = None
+        self.cookie = None
+
+    def _connect(self):
+        if self.https:
+            self.conn = http.client.HTTPSConnection(self.host, self.port, timeout=150,
+                                                    context=ssl.create_default_context())
+        else:
+            self.conn = http.client.HTTPConnection(self.host, self.port, timeout=150)
+
+    def request(self, method: str, path: str, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if self.cookie:
+            headers["Cookie"] = self.cookie
+        for attempt in (1, 2):  # a kept-alive socket the server closed is retried once, fresh
+            if self.conn is None:
+                self._connect()
+            started = time.perf_counter()
+            try:
+                self.conn.request(method, path, body=data, headers=headers)
+                res = self.conn.getresponse()
+                raw = res.read()
+                break
+            except (http.client.HTTPException, OSError):
+                self.conn.close()
+                self.conn = None
+                if attempt == 2:
+                    raise
+        set_cookie = res.getheader("Set-Cookie")
+        if set_cookie:
+            self.cookie = set_cookie.split(";")[0]
+        return res.status, raw, (time.perf_counter() - started) * 1000
 
 
 def offset_of(judge: Judge, rec: Recording, hour: int) -> int:
@@ -347,30 +395,34 @@ def load(base: str, rec: Recording, judges: int, seconds: int):
                 errors.append(f"{kind} {status}")
 
     def judge_loop(n: int):
-        judge = Judge(base)
-        status, _, _, ms = judge.request("GET", "/")
-        note("page", status, ms)
+        judge = KeepAliveJudge(base)
         rng = random.Random(n)
         explains = n % 5 == 0
         next_explain = time.time() + rng.uniform(5, 20)
-        while time.time() < deadline:
-            status, body, _, ms = judge.request("POST", "/api/ward/tick", {})
-            note("tick", status, ms, (200, 409))
-            if status == 409:
-                status, _, _, ms = judge.request("POST", "/api/ward/seed", {})
-                note("seed", status, ms)
-            for path in ("/api/ward",) + tuple(
-                    f"/api/patient/{rng.choice(rec.beds)}{s}" for s in ("", "/history?limit=24",
-                                                                         "/context")):
-                status, _, _, ms = judge.request("GET", path)
-                note("read", status, ms)
-            if explains and generating and time.time() >= next_explain:
-                pid = rng.choice(generating)
-                status, body, _, ms = judge.request("POST", f"/api/patient/{pid}/explain",
-                                                    {"use_llm": True}, timeout=150)
-                note("explain", status, ms, (200, 409))
-                next_explain = time.time() + rng.uniform(15, 30)
-            time.sleep(3)
+        try:
+            status, _, ms = judge.request("GET", "/")
+            note("page", status, ms)
+            while time.time() < deadline:
+                status, _, ms = judge.request("POST", "/api/ward/tick", {})
+                note("tick", status, ms, (200, 409))
+                if status == 409:
+                    status, _, ms = judge.request("POST", "/api/ward/seed", {})
+                    note("seed", status, ms)
+                for path in ("/api/ward",) + tuple(
+                        f"/api/patient/{rng.choice(rec.beds)}{s}"
+                        for s in ("", "/history?limit=24", "/context")):
+                    status, _, ms = judge.request("GET", path)
+                    note("read", status, ms)
+                if explains and generating and time.time() >= next_explain:
+                    pid = rng.choice(generating)
+                    status, _, ms = judge.request("POST", f"/api/patient/{pid}/explain",
+                                                  {"use_llm": True})
+                    note("explain", status, ms, (200, 409))
+                    next_explain = time.time() + rng.uniform(15, 30)
+                time.sleep(3)
+        except Exception as failure:  # a dead judge must count, not vanish with its thread
+            with lock:
+                errors.append(f"judge {n}: {type(failure).__name__}")
 
     threads = [threading.Thread(target=judge_loop, args=(n,), daemon=True) for n in range(judges)]
     for t in threads:
