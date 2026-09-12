@@ -204,7 +204,12 @@ class Session:
 class Sessions:
     """In memory, flushed to disk half a second after anything changes, and never expired: a
     session that vanished mid-event would rewind a judge's ward without a word. SIGTERM flushes
-    on the way out; only a hard kill can lose the last half second."""
+    on the way out; only a hard kill can lose the last half second.
+
+    The one exception is at the cap, and it loses nothing: every page load mints a session, bots
+    included (about 700 overnight on 2026-09-11), so a full table evicts its oldest PRISTINE
+    session, still at hour 0 with nothing reviewed or explained. A reload recreates that state
+    exactly, and its owner, if any, meets the named SESSION_GONE problem rather than a rewind."""
 
     def __init__(self, path: Path, cap: int, digest: str):
         self.path, self.cap, self.digest = path, cap, digest
@@ -228,12 +233,22 @@ class Sessions:
 
     def mint(self):
         with self.lock:
-            if len(self.items) >= self.cap:
+            if len(self.items) >= self.cap and not self._evict_pristine():
                 return None, None
             sid = secrets.token_urlsafe(18)
             self.items[sid] = Session(int(time.time()))
             self.dirty = True
             return sid, self.items[sid]
+
+    def _evict_pristine(self) -> bool:
+        """Drop the oldest session nobody has moved. Called with the lock held."""
+        pristine = [(s.anchor, sid) for sid, s in self.items.items()
+                    if s.hour == 0 and not s.reviews and not s.explained]
+        if not pristine:
+            return False
+        del self.items[min(pristine)[1]]
+        self.dirty = True
+        return True
 
     def changed(self):
         self.dirty = True
@@ -365,6 +380,7 @@ class Handler(BaseHTTPRequestHandler):
         self.route = "?"
         self.sid_tag = "-"
         self.status_sent = 0
+        self.body_read = False
         try:
             path = urlsplit(self.path).path
             if path == "/healthz":
@@ -373,7 +389,6 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith("/api/"):
                 self._api(method, path)
             elif method == "POST":
-                self.close_connection = True  # its body was never read; do not reuse the socket
                 raise problem(405, "Method Not Allowed", "only /api accepts POST")
             else:
                 self._static(path)
@@ -415,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Accept-Encoding")
         for name, value in headers:
             self.send_header(name, value)
+        if self._unread_body():
+            self.send_header("Connection", "close")  # http.server then closes the socket too
         self.end_headers()
         self.status_sent = status
         if self.command != "HEAD":
@@ -434,12 +451,22 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return jar[COOKIE].value if COOKIE in jar else None
 
+    def _unread_body(self) -> bool:
+        """A body the request declared and nothing read. Left on the socket it is parsed as the
+        start of the NEXT request, and Caddy pools upstream connections across clients: scanners
+        send GETs with bodies, and on 2026-09-11 ten of them turned the request after them into a
+        400. Such a response closes its connection instead."""
+        if self.body_read:
+            return False
+        declared = (self.headers.get("Content-Length") or "0").strip()
+        return bool(self.headers.get("Transfer-Encoding")) or declared != "0"
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length > BODY_LIMIT:
-            self.close_connection = True
             raise problem(413, "Content Too Large", f"request bodies are limited to {BODY_LIMIT} bytes")
         raw = self.rfile.read(length) if length else b""
+        self.body_read = True
         if not raw.strip():
             return {}
         try:

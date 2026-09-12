@@ -393,6 +393,54 @@ def check_overlays(base: str, rec: Recording):
          "Restart ward clears both and returns to hour 0")
 
 
+def check_connection(base: str):
+    print("\nC  a body nothing reads never reaches the next request")
+    # Scanners send GETs with bodies. Behind Caddy's pooled upstream connections the unread bytes
+    # were parsed as the start of whichever request came next: ten 400s on 2026-09-11. Five
+    # rounds, so that through Caddy at least one lands on the connection the body was left on.
+    parts = urlsplit(base)
+    cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+    conn = cls(parts.hostname, parts.port, timeout=30)
+    after = []
+    try:
+        for _ in range(5):
+            conn.request("GET", "/healthz", body=b"a body sent with a GET",
+                         headers={"Content-Type": "text/plain"})
+            conn.getresponse().read()
+            conn.request("GET", "/healthz")
+            res = conn.getresponse()
+            res.read()
+            after.append(res.status)
+    finally:
+        conn.close()
+    show(after == [200] * 5, "the request after a GET with a body is answered normally",
+         f"statuses {after}")
+
+
+def check_capacity():
+    print("\nP  a full table makes room only from sessions nobody has moved")
+    own = OwnServer(pace="0", extra=("--max-sessions", "3"))
+    try:
+        moved, older, newer = Judge(own.base), Judge(own.base), Judge(own.base)
+        moved.open_page()
+        moved.api("POST", "/ward/tick", {})
+        older.open_page()
+        time.sleep(1.1)  # anchors are whole seconds; this makes "oldest" unambiguous
+        newer.open_page()
+        late = Judge(own.base)
+        show(late.open_page() == 200, "a page load at the cap still gets a ward")
+        status, body = older.api("GET", "/ward")
+        show(status == 409 and "Reload the page" in str(body),
+             "the oldest pristine session made room, and says so by name")
+        show(all(j.api("GET", "/ward")[0] == 200 for j in (moved, newer, late)),
+             "the moved session and the newer ones are untouched")
+        for judge in (newer, late):
+            judge.api("POST", "/ward/tick", {})
+        show(Judge(own.base).open_page() == 503, "with nothing pristine left, the page says full")
+    finally:
+        own.stop()
+
+
 def load(base: str, rec: Recording, judges: int, seconds: int):
     print(f"\nL  {judges} judges streaming at the UI's cadence for {seconds}s")
     deadline = time.time() + seconds
@@ -462,18 +510,19 @@ def free_port() -> int:
 
 
 class OwnServer:
-    def __init__(self, pace: str):
+    def __init__(self, pace: str, extra=()):
         self.port = free_port()
         self.base = f"http://127.0.0.1:{self.port}"
         self.state = HERE / f".check-sessions-{self.port}.json"
         self.pace = pace
+        self.extra = list(extra)
         self.proc = None
         self.start()
 
     def start(self):
         self.proc = subprocess.Popen(
             [sys.executable, str(HERE / "server.py"), "--port", str(self.port), "--pace", self.pace,
-             "--state", str(self.state), "--ui", str(UI)],
+             "--state", str(self.state), "--ui", str(UI), *self.extra],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
             try:
@@ -509,6 +558,7 @@ def main() -> None:
         a = check_equality(args.base, rec, hours=3)
         check_prose(rec)
         check_sessions(args.base, rec, a, 3)
+        check_connection(args.base)
         if args.load:
             load(args.base, rec, args.load, args.seconds)
     else:
@@ -518,8 +568,10 @@ def main() -> None:
             check_prose(rec)
             check_sessions(own.base, rec, a, rec.hours, restart=own.restart)
             check_overlays(own.base, rec)
+            check_connection(own.base)
         finally:
             own.stop()
+        check_capacity()
         if args.load:
             paced = OwnServer(pace="recorded")
             try:
