@@ -79,6 +79,27 @@ def placeholder(uri: str) -> bool:
                                           userinfo.group(1)))
 
 
+def scan(text: str, secrets: list[str]) -> list[str]:
+    """What in one file's text would leak. `replay/package.py` scans with this too."""
+    found = []
+    for value in secrets:
+        if value in text:
+            found.append("contains a LIVE value from .env")
+
+    lines = text.splitlines()
+    for pattern, what in PATTERNS:
+        for match in re.finditer(pattern, text):
+            n = text[:match.start()].count("\n")
+            context = lines[n] if n < len(lines) else ""
+            token = match.group(0)
+            if NAME_ONLY.search(context) and "://" not in token:
+                continue
+            if token.startswith("mongodb") and placeholder(token):
+                continue
+            found.append(f"line {n + 1}: {what}")
+    return found
+
+
 def main() -> None:
     failures: list[str] = []
     tracked = [f for f in git("ls-files").splitlines() if f.strip()]
@@ -94,22 +115,7 @@ def main() -> None:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-
-        for value in secrets:
-            if value in text:
-                failures.append(f"{relative} contains a LIVE value from .env")
-
-        lines = text.splitlines()
-        for pattern, what in PATTERNS:
-            for match in re.finditer(pattern, text):
-                n = text[:match.start()].count("\n")
-                context = lines[n] if n < len(lines) else ""
-                token = match.group(0)
-                if NAME_ONLY.search(context) and "://" not in token:
-                    continue
-                if token.startswith("mongodb") and placeholder(token):
-                    continue
-                failures.append(f"{relative}:{n + 1} {what}")
+        failures += [f"{relative} {finding}" for finding in scan(text, secrets)]
 
     if not failures:
         print("  [PASS] no credential in any tracked file")
@@ -146,4 +152,5 @@ def main() -> None:
     sys.exit(1 if failures else 0)
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -157,7 +157,7 @@ def _rests_on_a_default(feature: str, parameter: str | None, suffix: str | None,
 
 def assessment(record: dict, *, patient_id: str, bed_code: str, unit: str,
                devices: list[dict], readings_since_admission: int,
-               explanation: dict | None = None, citations: list[dict] | None = None,
+               explanation: dict | None = None,
                prompt: dict | None = None, review: dict | None = None) -> dict:
     """The record as the frontend reads it -- scored, or explicitly refused."""
     base = {
@@ -189,7 +189,6 @@ def assessment(record: dict, *, patient_id: str, bed_code: str, unit: str,
             "readings_in_state": band["readings_in_state"],
             "contributors": contributors(record),
             "explanation": explanation,
-            "citations": citations or [],
             "prompt": prompt,
             "review": review,
             # So a stored assessment traces to what produced it. The schema

@@ -1,0 +1,27 @@
+# The replay as a permanent service. It faces the internet through Caddy, so it runs as a
+# throwaway user that can read its release and write one directory, and nothing else.
+[Unit]
+Description=PulseMind replay: prototype 2, recorded outputs, no model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=pulsemind-replay
+ExecStart=/usr/bin/python3 -u /srv/pulsemind-replay/current/server.py --host 127.0.0.1 --port 8750 --bundle /srv/pulsemind-replay/current/bundle --ui /srv/pulsemind-replay/current/ui --state /var/lib/pulsemind-replay/sessions.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -11,6 +11,15 @@ __pycache__/
 dist/
 node_modules/
 
+# The replay's recording, its packaged UI and its runtime state. Rebuilt by replay/record.py and
+# replay/package.py; shipped by scp, never through git.
+replay/bundle/
+replay/ui/
+replay/sessions.json
+replay/.check-sessions-*.json
+replay/*.log
+replay/*.pid
+
 # No CSV is ever committed here. MIMIC-IV is credentialed under a PhysioNet DUA
 # and this repository is public. Blanket rather than targeted: the ward is
 # manufactured, so any CSV appearing here is either a mistake or a breach.

@@ -20,6 +20,12 @@ const req_id = (res) => res.getHeader('X-Request-Id');
 const fromUpstream = (res, err, what) => {
   if (err.response) {
     const status = err.response.status;
+    // The model service says HOW saturated it was, and this used to be dropped
+    // here -- so a 503 told the browser to come back in 25 s without ever saying
+    // it was a queue that refused. It is capacity, not the caller's quota, and
+    // the depth is the number that says so.
+    const depth = err.response.data?.queue_depth;
+    if (depth !== undefined) res.mark?.('refused', `queue depth ${depth}`);
     return res.status(status === 503 ? 503 : (status >= 400 && status < 500 ? status : 502))
       .type('application/problem+json')
       .set(err.response.headers?.['retry-after']
@@ -83,7 +89,22 @@ const persist = async (assessment) => {
   // the next HIGH reading is not a promotion and never raises a replacement.
 };
 
-/** Build the ward and backfill 24 hours of scored history.
+// ONE WARD OPERATION AT A TIME. `tickWard` and `seedWard` both read, then write,
+// the same `StayState`, and `seedWard` additionally deletes all three
+// collections. Run concurrently, a tick's write lands after the seed's delete and
+// leaves a StayState one generation behind its own assessments -- a lost update
+// with no error anywhere, because neither path carries a version predicate.
+// This runs as a single local process, so a module-level flag is the whole fix;
+// a second instance against the same database would need that predicate.
+let wardBusy = false;
+
+const wardBusyResponse = (res) => res.status(409).type('application/problem+json').json({
+  type: 'about:blank', title: 'Conflict', status: 409,
+  detail: 'another ward operation is already in progress',
+  instance: req_id(res),
+});
+
+/** Build the ward and backfill its scored history, hourly.
  *  Destructive by design: seeding twice gives the same ward, not two. */
 const seedWard = async (req, res) => {
   if (!ALLOW_DESTRUCTIVE) {
@@ -94,6 +115,16 @@ const seedWard = async (req, res) => {
       instance: req_id(res),
     });
   }
+  if (wardBusy) return wardBusyResponse(res);
+  wardBusy = true;
+  try {
+    return await runSeed(req, res);
+  } finally {
+    wardBusy = false;
+  }
+};
+
+const runSeed = async (req, res) => {
   const seed = Number(req.body?.seed ?? DEFAULT_SEED);
   const ticks = Number(req.body?.backfill_ticks ?? BACKFILL_TICKS);
 
@@ -152,9 +183,23 @@ const seedWard = async (req, res) => {
 
 /** Advance every bed by one reading, from the state held in Mongo. */
 const tickWard = async (req, res) => {
+  if (wardBusy) return wardBusyResponse(res);
+  wardBusy = true;
+  try {
+    return await runTick(res);
+  } finally {
+    wardBusy = false;
+  }
+};
+
+const runTick = async (res) => {
   const states = await StayState.find().lean();
   if (!states.length) {
-    return res.status(409).json({ message: 'ward not seeded -- POST /api/ward/seed first' });
+    return res.status(409).type('application/problem+json').json({
+      type: 'about:blank', title: 'Conflict', status: 409,
+      detail: 'the ward is not seeded -- POST /api/ward/seed first',
+      instance: req_id(res),
+    });
   }
 
   const beds = states.map((s) => ({
@@ -205,9 +250,30 @@ const getWard = async (req, res) => {
     { $project: { record: 0 } },
     { $sort: { bed_code: 1 } }
   ]);
+  // Demographics ride along, so a board that needs them costs one request and
+  // two queries instead of one request per bed. They are the SAME rows
+  // `/api/patient/:id/context` serves -- one read for the whole ward, not a
+  // per-bed lookup -- and the field is additive: a client that does not know
+  // about it is unaffected.
+  //
+  // THREE FIELDS, NOT THE WHOLE CONTEXT. The board renders identity and risk; it
+  // does not render weight, height, comorbidities or the Charlson index, and
+  // shipping a recorded medical history to a screen that shows none of it is a
+  // minimum-necessary problem rather than a payload-size one. These three are the
+  // ones the client's own validator requires. The drawer still reads the whole
+  // context from `/api/patient/:id/context`, which is where it belongs.
+  //
+  // Scoped to the beds on this board, not the whole collection: an unfiltered
+  // find grows without bound as stays accumulate.
+  const states = await StayState.find({ patient_id: { $in: latest.map((r) => r.patient_id) } })
+    .select('patient_id context.age context.sex context.ethnicity')
+    .lean();
+  const contexts = new Map(states.map((s) => [s.patient_id, s.context ?? null]));
+
   // An empty ward is an empty list, not a 204: Express strips a 204's body, so
   // `.json()` threw and the empty-state screen was unreachable.
-  res.json(await Promise.all(latest.map(withPrompt)));
+  const rows = await Promise.all(latest.map(withPrompt));
+  res.json(rows.map((row) => ({ ...row, context: contexts.get(row.patient_id) ?? null })));
 };
 
 /** One patient's current assessment. */
@@ -256,26 +322,47 @@ const getParameterHistory = async (req, res) => {
   res.json(points);
 };
 
-/** Generate the explanation for a patient's latest assessment. 18-23 s on a
+/** Generate the explanation for one stored reading. 18-23 s on a
  *  local 7B. Every string is grounded against the record before it is stored;
  *  one that fails is replaced by the template, not shown with a warning. */
 const explainPatient = async (req, res) => {
   const { patientId } = req.params;
+
+  // Which reading to explain. Without `assessed_at` this is whichever row is
+  // newest when the request arrives; with it, the row the caller has on screen.
+  // On a ward that is advancing those are not the same, and the client's choice
+  // is the right one -- it is the reading a clinician was actually reading.
+  const hasTarget = req.body?.assessed_at !== undefined && req.body.assessed_at !== null;
+  const at = hasTarget ? new Date(req.body.assessed_at) : null;
+  if (at && Number.isNaN(at.getTime())) {
+    return res.status(400).json({ message: 'assessed_at is not a date' });
+  }
+
   // `+record` because the schema hides it by default. It is what makes the
   // explanation describe the STORED reading -- sending a tick instead had the
   // service re-score at its own `now` and narrate a dwell no row ever had.
-  const latest = await Assessment.findOne({ patient_id: patientId })
-    .sort({ assessed_at: -1 }).select('+record').lean();
-  if (!latest) {
-    return res.status(404).json({ message: `no assessment for ${patientId}` });
-  }
-  if (latest.assessment_status !== 'assessed') {
-    return res.status(409).json({
-      message: 'this reading is below the data-sufficiency floor and is not explained',
-      insufficiency_reason: latest.insufficiency_reason
+  // No sort on the targeted branch: `{patient_id, assessed_at}` is unique.
+  const query = Assessment.findOne(
+    at ? { patient_id: patientId, assessed_at: at } : { patient_id: patientId }
+  );
+  const target = await (at ? query : query.sort({ assessed_at: -1 }))
+    .select('+record').lean();
+  if (!target) {
+    // Two different facts, and an operator reading "no assessment for PM-204"
+    // when the bed has thirty of them goes looking for an unseeded ward.
+    return res.status(404).json({
+      message: at
+        ? `no reading for ${patientId} at ${at.toISOString()}`
+        : `no assessment for ${patientId}`
     });
   }
-  if (!latest.record) {
+  if (target.assessment_status !== 'assessed') {
+    return res.status(409).json({
+      message: 'this reading is below the data-sufficiency floor and is not explained',
+      insufficiency_reason: target.insufficiency_reason
+    });
+  }
+  if (!target.record) {
     return res.status(409).json({
       message: 'this assessment predates record storage -- re-seed the ward'
     });
@@ -285,7 +372,7 @@ const explainPatient = async (req, res) => {
   try {
     const { data } = await explaining.post('/explain/patient', {
       patient_id: patientId,
-      record: latest.record,
+      record: target.record,
       // The deterministic template floor instead of the 7B. Off by default; the
       // only way to exercise this path without 6.9 GB of VRAM.
       use_llm: req.body?.use_llm !== false
@@ -295,17 +382,53 @@ const explainPatient = async (req, res) => {
     return fromUpstream(res, err, 'the explanation generator');
   }
 
-  await Assessment.updateOne(
-    { _id: latest._id },
-    {
-      explanation: {
-        status: result.status,
-        explanation_text: result.explanation_text,
-        grounding_status: result.grounding_status
+  // A FAILED REGENERATION MUST NOT DESTROY A GOOD ONE.
+  //
+  // This wrote back unconditionally, so a 7B that OOM'd while re-explaining a
+  // row that already had grounded prose replaced it with the fixed "unavailable"
+  // string -- permanently, and the panel offers no way back from that state. An
+  // explanation that could not be produced is not a reason to discard one that
+  // was. The caller still gets the real result and can show the failure.
+  const wouldDestroy = result.status === 'unavailable'
+    && target.explanation?.status === 'generated';
+  let stored = !wouldDestroy;
+  if (stored) {
+    const write = await Assessment.updateOne(
+      { _id: target._id },
+      {
+        explanation: {
+          status: result.status,
+          explanation_text: result.explanation_text,
+          grounding_status: result.grounding_status,
+          // Stored WITH the text, not beside it. `generator` is what lets the
+          // panel tell "the 7B ran and the library had no approved passage"
+          // apart from "the template does not consult the library" apart from
+          // "nothing has been generated yet" -- three states that all carry an
+          // empty `citations` list.
+          generator: result.generator ?? null,
+          citations: result.citations ?? []
+        }
       }
-    }
-  );
-  res.json(result);
+    );
+    // `updateOne` matches nothing if the row was deleted underneath -- a re-seed
+    // lands while a 20 s generation is in flight. Reporting `stored: true` there
+    // is the one thing this field exists to prevent.
+    stored = write.matchedCount > 0;
+  }
+  res.json({ ...result, stored });
+};
+
+/** Load the 7B before it is first needed. Writes nothing.
+ *  Uses the `explaining` client because the work runs on the model thread under
+ *  EXPLAIN_TIMEOUT_S, and the caller must sit above the callee (PM-TIME-001) --
+ *  not because of how long the load takes. Figures: `.claude/rules/demo.md`. */
+const warmExplainer = async (req, res) => {
+  try {
+    const { data } = await explaining.post('/warmup', {});
+    return res.json(data);
+  } catch (err) {
+    return fromUpstream(res, err, 'the explanation generator');
+  }
 };
 
 /** Borrowed patient context: recorded, never computed by the model. */
@@ -325,6 +448,26 @@ const reviewPrompt = async (req, res) => {
   if (!allowed.includes(disposition)) {
     return res.status(400).json({ message: `disposition must be one of ${allowed.join(', ')}` });
   }
+
+  // TWO TIMES, BOTH TRUE. NOT ONE INVENTED ONE.
+  //
+  // `raised_at` comes from the reading that raised the prompt, and a simulated
+  // tick moves the ward an hour ahead of real time -- so a disposition recorded
+  // now can sit hours "before" the prompt it answers. The fix is NOT to stamp
+  // `reviewed_at` from the ward's clock: that writes an instant at which nothing
+  // happened, silently, into the only human-authored record the system holds,
+  // and it destroys ordering (two reviews inside one tick become identical) and
+  // fires on ordinary clock skew. It is the same error as a defaulted clinician
+  // name, and `attributed` below is the pattern -- declare the second fact.
+  const existing = await Prompt.findById(req.params.promptId).select('patient_id').lean();
+  // Scoped to the patient so `{patient_id, assessed_at}` serves it; ward-wide
+  // this is a full collection scan that grows with every tick.
+  const newest = existing
+    ? await Assessment.findOne({ patient_id: existing.patient_id })
+        .sort({ assessed_at: -1 }).select('assessed_at').lean()
+    : null;
+  const reviewedAt = new Date();
+  const wardTime = newest ? new Date(newest.assessed_at) : null;
 
   // ATTRIBUTION COMES FROM AN AUTHENTICATED PRINCIPAL, OR IT IS DECLARED ABSENT.
   //
@@ -346,7 +489,13 @@ const reviewPrompt = async (req, res) => {
       review: {
         disposition,
         note: note || null,
-        reviewed_at: new Date(),
+        reviewed_at: reviewedAt,
+        // Null only when it adds nothing. Compared for INEQUALITY, not ordering:
+        // a streaming ward runs ahead of the wall clock, an idle one falls
+        // behind it by however long it sat, and the second case is just as
+        // confusing on screen as the first. `>` recorded only half of them.
+        ward_time_at_review:
+          wardTime && wardTime.getTime() !== reviewedAt.getTime() ? wardTime : null,
         clinician: actor,
         attributed: actor !== null
       }
@@ -357,17 +506,45 @@ const reviewPrompt = async (req, res) => {
   res.json(prompt);
 };
 
-/** Switch an input source off, or back on. The consequence is the point. */
+/** Switch input sources off, or back on. The consequence is the point.
+ *
+ *  Takes a LIST. One request per device raced itself: three chips restored at
+ *  once meant three reads of the same `offline_devices`, three last-write-wins
+ *  saves, and one device actually back -- silently, because each response was
+ *  individually correct. Restoring all of them is one write or it is a lottery.
+ *
+ *  Behind `wardBusy` because this is a read-modify-write on `StayState` and a
+ *  seed deletes and re-upserts that document with a fresh `_id`; a `save()`
+ *  landing in that window matches nothing and throws DocumentNotFoundError.
+ */
 const setDeviceState = async (req, res) => {
+  if (wardBusy) return wardBusyResponse(res);
+  wardBusy = true;
+  try {
+    return await runSetDeviceState(req, res);
+  } finally {
+    wardBusy = false;
+  }
+};
+
+const runSetDeviceState = async (req, res) => {
   const { patientId } = req.params;
-  const { device_id: deviceId, offline } = req.body || {};
-  if (!deviceId) return res.status(400).json({ message: 'device_id required' });
+  const body = req.body || {};
+  // `device_ids` is the shape; `device_id` stays accepted so a single chip is
+  // not a special case at the call site.
+  const ids = body.device_ids ?? (body.device_id ? [body.device_id] : null);
+  const { offline } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ message: 'device_id or a non-empty device_ids required' });
+  }
 
   const state = await StayState.findOne({ patient_id: patientId });
   if (!state) return res.status(404).json({ message: `no stay state for ${patientId}` });
 
   const current = new Set(state.offline_devices);
-  if (offline) current.add(deviceId); else current.delete(deviceId);
+  for (const id of ids) {
+    if (offline) current.add(id); else current.delete(id);
+  }
   state.offline_devices = [...current];
   await state.save();
 
@@ -402,6 +579,7 @@ module.exports = {
   getParameterHistory,
   getPatientContext,
   explainPatient,
+  warmExplainer,
   reviewPrompt,
   setDeviceState
 };

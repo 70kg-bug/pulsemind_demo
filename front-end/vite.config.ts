@@ -13,7 +13,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // 5174, NOT 5173, since 2026-08-28. The finalized SvelteKit UI is the clinical demo and takes
+    // 5173; this app is now the engineering view -- the simulation bar, the ward stream and the
+    // telemetry dock -- and both run against the same Node API. `allowedOrigins.js` already lists
+    // this port, so nothing else has to move.
+    port: 5174,
     // ../contract sits above the Vite root, so serving it has to be allowed.
     fs: { allow: ['..'] },
     proxy: {

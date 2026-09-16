@@ -52,7 +52,17 @@ const explanationSchema = new Schema({
   grounding_status: {
     type: String,
     enum: ['passed', 'violations_found', 'not_checked']
-  }
+  },
+  // WHICH writer produced the text: the model id, 'template', or null when
+  // nothing was generated. Load-bearing, not provenance decoration -- an empty
+  // `citations` list means "the library holds no approved passage for this
+  // reading" after the 7B and "the template never consults the library" after
+  // the floor, and those are the same two fields away from being read as a
+  // failure.
+  generator: String,
+  // The passages the generator was SHOWN, stored with the text they grounded
+  // rather than on the assessment. Same operation, same record.
+  citations: [{ source: String, claim: String, _id: false }]
 }, { _id: false });
 
 const assessmentSchema = new Schema({
@@ -80,7 +90,6 @@ const assessmentSchema = new Schema({
   readings_in_state: Number,
   contributors: [contributorSchema],
   explanation: explanationSchema,
-  citations: [{ source: String, claim: String, _id: false }],
 
   // --- present only when assessment_status is 'insufficient_data' ----------
   insufficiency_reason: {
@@ -107,5 +116,10 @@ const assessmentSchema = new Schema({
 assessmentSchema.index({ patient_id: 1, assessed_at: -1 });
 // One assessment per patient per reading time; a replayed tick must not double.
 assessmentSchema.index({ patient_id: 1, assessed_at: 1 }, { unique: true });
+
+// Every query through this model reports a `mongo` span. Applied here rather
+// than globally: a global plugin only reaches schemas compiled after it runs,
+// so it stops timing silently when require order changes.
+assessmentSchema.plugin(require('../config/queryTiming'));
 
 module.exports = mongoose.model('Assessment', assessmentSchema);

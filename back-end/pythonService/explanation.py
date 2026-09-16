@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import json
 import time
+from functools import lru_cache
+
+from stopwatch import NULL as NO_TIMINGS
+from stopwatch import Timings
 
 from pipeline import config as C
 from pipeline.core import explain as E
@@ -25,8 +29,14 @@ from pipeline.core import grounding as G
 _generator = None
 
 
+@lru_cache(maxsize=1)
 def policy() -> E.Policy:
-    """Same construction as s18_explain.policy(), which is the definition."""
+    """Same construction as s18_explain.policy(), which is the definition.
+
+    Cached: the evidence map is 73 KB of JSON and this is now read on the
+    SCORING path, once per bed per tick, not just when someone asks for prose.
+    The map is a build artifact and does not change under a running service.
+    """
     evidence = None
     if C.EVIDENCE_MAP_JSON.exists():
         evidence = json.loads(
@@ -59,11 +69,79 @@ def check(record: dict, text: str, pol: E.Policy) -> list[G.Finding]:
                    band_names=C.BAND_NAMES, evidence=evidence)
 
 
+#: Free VRAM the 7B needs, from the driver, before the load is allowed to start.
+#:
+#: MEASURED, 2026-09-07, having been a bracket before that: a segfault at
+#: 6561 MiB free and a success at 6721 -- inferred from whether the process
+#: survived, because nobody had watched the card DURING a load.
+#:
+#: `bki/pipeline/tools/vram_probe.py` samples the driver at 5 Hz across the load
+#: -- same source, same unit as the check below. Three consecutive loads:
+#:
+#:   run   free before   PEAK    resident   load    generate
+#:     1          6795   6059        5929   16.7s      14.4s
+#:     2          7501   6239        6109   17.4s      13.2s
+#:     3          7423   6171        6041   15.8s      13.3s
+#:
+#: Peak max 6239, spread 180. The transient above resident is 130 MiB in ALL
+#: THREE runs, which is the steadiest figure in this whole investigation.
+#:
+#: 6420 = 6239 + 180. Peak plus the observed run-to-run spread, which is the
+#: margin that matters: free VRAM at check time is not free VRAM 17 s later, and
+#: drift is what made 6561 crash one day and load the next.
+#:
+#: ⚠️ THIS IS THE "LOWEST THAT LOADS" SETTING, chosen deliberately (2026-09-07)
+#: over a safer one. It is BELOW the 6561 that crashed, so it will permit a
+#: configuration that has failed before. That is the accepted trade: the failure
+#: mode is a segfault that takes the service down, and the mitigation is that a
+#: demo should warm the explainer FIRST, when a crash costs a restart rather than
+#: an audience. Raise it on any load that fails above this line -- that failure
+#: is still the only evidence that narrows the requirement from below.
+#:
+#: ⚠️ The peak does NOT move with `PM_LLM_EMBED_DEVICE`, so do not lower this
+#: constant when that setting changes: the table is on the card while
+#: `from_pretrained` runs, whatever happens to it afterwards. What it does change
+#: is the room left AFTER the load, and therefore generation speed -- 13.6 s
+#: against 21.7 s, measured. See `LLM_EMBED_DEVICE` in `pipeline/config.py`.
+#:
+#: The VALUE is defined in `pipeline.config`, so this service and the pipeline
+#: stage cannot drift apart -- they did, by 1455 MiB (6700 here against 5.5 GB =
+#: 5245 MiB there), each passing its own check while doing so. The evidence stays
+#: here, where the gate that acts on it lives.
+MIN_FREE_VRAM_MIB = C.LLM_MIN_FREE_VRAM_MIB
+
+
+class InsufficientVRAM(RuntimeError):
+    """The card cannot hold the 7B. Raised BEFORE the load, on purpose."""
+
+
 def generator():
-    """Load the 7B on first use. Blocks for as long as the weights take."""
+    """Load the 7B on first use. Blocks for as long as the weights take.
+
+    GATED, NOT WRAPPED. Loading a 7B onto a card without room does not raise --
+    it segfaults, taking the whole service down and reaching Node as an
+    ECONNRESET. No `except` clause runs after the process dies, so `/warmup`'s
+    try/except is decorative against the failure that actually happens. The only
+    thing that helps is refusing before the allocation.
+
+    Here rather than in the `/warmup` route because this is the single funnel:
+    the explicit warm-up and the lazy load inside `/explain/patient` both arrive
+    through it, and the second is the one that threatens a demo.
+
+    Free VRAM comes from the driver via `vram_status()`, never from CUDA's own
+    bookkeeping -- measured with the 7B resident, nvidia-smi said 260 MiB free
+    and torch said 6759.
+    """
     global _generator
     if _generator is None:
         from pipeline.core import generate as Gen
+        vram = Gen.vram_status()
+        if vram["free_mib"] < MIN_FREE_VRAM_MIB:
+            raise InsufficientVRAM(
+                f"{vram['free_mib']} MiB free of {vram['total_mib']} MiB "
+                f"(source: {vram['source']}); the 7B needs at least "
+                f"{MIN_FREE_VRAM_MIB} MiB. Close what is holding the card, or "
+                f"explain with use_llm=false for the deterministic template.")
         _generator = Gen.load_generator()
     return _generator
 
@@ -77,7 +155,8 @@ def generator_loaded() -> bool:
     return _generator is not None
 
 
-def generate_explanation(record: dict, use_llm: bool = True) -> dict:
+def generate_explanation(record: dict, use_llm: bool = True,
+                         timings: Timings = NO_TIMINGS) -> dict:
     """Explain one assessment, or say plainly why it cannot be explained.
 
     Returns the contract's Explanation shape plus the findings and timing, so a
@@ -89,40 +168,62 @@ def generate_explanation(record: dict, use_llm: bool = True) -> dict:
     # Below the sufficiency floor there is nothing honest to say, and
     # build_payload() raises rather than letting a generator try.
     try:
-        E.build_payload(record, pol)
+        with timings.span("floor"):
+            E.build_payload(record, pol)
     except E.InsufficientData as reason:
         return {"status": "unavailable",
                 "explanation_text": C.INSUFFICIENT_DATA_TEXT,
                 "grounding_status": "not_checked",
-                "findings": [], "generator": None,
+                "findings": [], "generator": None, "citations": [],
                 "withheld_because": str(reason),
                 "seconds": round(time.perf_counter() - started, 3)}
 
-    baseline = E.baseline(record, pol)
+    # ALWAYS computed, on both paths: it is the substitute a failed grounding
+    # check falls back to, so it cannot wait until one is needed. Its own span,
+    # not `explain`, because aggregating the deterministic floor and the 7B into
+    # one entry would report a 26 s generation and a 2 ms template as one number.
+    with timings.span("baseline"):
+        baseline = E.baseline(record, pol)
     if not use_llm:
-        return _result("generated", baseline, check(record, baseline, pol),
+        with timings.span("ground"):
+            findings = check(record, baseline, pol)
+        return _result("generated", baseline, findings,
                        generator_name="template", started=started, fell_back=False)
 
     try:
-        block = E.explain(record, pol, generator=generator(),
-                          generator_name=C.LLM_MODEL_ID)
+        # COLD LOAD AND GENERATION ARE DIFFERENT NUMBERS -- 27.9 s to load
+        # against 18-23 s to write -- and one figure covering both cannot tell a
+        # reader which they just watched. The span is recorded only when a load
+        # actually happens: a warm call has no load to report, and a 0 ms entry
+        # would be a stage that did not run wearing the costume of one that did.
+        if generator_loaded():
+            gen = generator()
+        else:
+            with timings.span("load", C.LLM_MODEL_ID):
+                gen = generator()
+        with timings.span("explain", C.LLM_MODEL_ID):
+            block = E.explain(record, pol, generator=gen,
+                              generator_name=C.LLM_MODEL_ID)
     except Exception as failure:                      # noqa: BLE001
         # A generator that cannot load must not take the score down with it.
         # Band, score, inputs and contributors all remain available.
         return {"status": "unavailable",
                 "explanation_text": C.EXPLANATION_UNAVAILABLE_TEXT,
                 "grounding_status": "not_checked",
-                "findings": [], "generator": None,
+                "findings": [], "generator": None, "citations": [],
                 "generator_error": f"{type(failure).__name__}: {failure}",
                 "seconds": round(time.perf_counter() - started, 3)}
 
     text = block["text"]
-    findings = check(record, text, pol)
+    with timings.span("ground"):
+        findings = check(record, text, pol)
     violations = [f for f in findings if f.severity == "violation"]
     if violations:
         # Substitute rather than warn. A grounded-but-wrong sentence in a
         # clinical voice is worse than a plainer one that is right.
-        return _result("generated", baseline, check(record, baseline, pol),
+        with timings.span("ground"):
+            baseline_findings = check(record, baseline, pol)
+        return _result("generated", baseline, baseline_findings,
                        generator_name="template", started=started, fell_back=True,
                        rejected=[f.to_json() for f in violations])
     return _result("generated", text, findings,
@@ -151,7 +252,40 @@ def _result(status: str, text: str, findings, *, generator_name: str,
         "generator": generator_name,
         "fell_back_to_template": fell_back,
         "rejected_generation": rejected or [],
+        # DERIVED, never passed in. The panel shows the passages the generator
+        # was actually shown -- sourcing them separately would let the citation
+        # list and the prose drift apart while both looked right.
+        "citations": _as_citations(guideline_context or []),
         "guideline_context": guideline_context or [],
         "suggested_actions": suggested_actions or [],
         "seconds": round(time.perf_counter() - started, 3),
     }
+
+
+def _as_citations(context: list[dict]) -> list[dict]:
+    """`guideline_context` in the contract's shape.
+
+    Takes the block the generator was shown rather than looking the passages up
+    again: sourced twice, the citation list and the prose can disagree while
+    each looks correct on its own. `quote` is verbatim by contract --
+    `grounding.check` compares against that exact string -- so it is passed
+    through untouched and only ever used as the claim, never reformatted.
+
+    Retrieval already happened, offline: s21 ran dense MedCPT retrieval with a
+    cross-encoder over the corpus, a human reviewed every key, and the result
+    was frozen. This is a dict lookup, which is why a fabricated citation is
+    structurally impossible here rather than merely unlikely.
+
+    An empty list is a real answer, not a failure: 9 of the 57 keys have no
+    admissible passage, and `select_evidence` skips those. `generator` is what
+    tells the two apart downstream.
+    """
+    return [
+        {
+            # Section included when the corpus knows it: a reader checking a
+            # claim needs where in the document, not just which document.
+            "source": f"{c['citation']} · {c['section']}" if c.get("section") else c["citation"],
+            "claim": c["quote"],
+        }
+        for c in context
+    ]

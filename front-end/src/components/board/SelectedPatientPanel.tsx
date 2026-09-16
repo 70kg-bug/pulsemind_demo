@@ -4,6 +4,7 @@ import type { Assessment } from '@contract/clinical'
 import { isScored } from '@contract/clinical'
 import { SUFFICIENCY_FLOOR, toObservations } from '../../data/feed'
 import { usePatientHistory } from '../../hooks/useApi'
+import { useWard } from '../../data/WardProvider'
 import { bandMeaning } from '../../data/bands'
 import { formatPercent, formatScore } from '../../lib/format'
 import { BandTag } from '../ui/BandTag'
@@ -19,7 +20,10 @@ interface SelectedPatientPanelProps {
 
 /** The side panel: what the board's selected patient looks like up close. */
 export function SelectedPatientPanel({ assessment }: SelectedPatientPanelProps) {
-  const { data: history } = usePatientHistory(assessment.patient_id)
+  // Refetched whenever the ward is re-read, so the strip cannot disagree with
+  // the board beside it.
+  const { revision } = useWard()
+  const { data: history } = usePatientHistory(assessment.patient_id, revision)
   return (
     <Panel className="p-4">
       <SectionHeading trailing={assessment.patient_id}>Selected patient</SectionHeading>
@@ -92,7 +96,7 @@ export function SelectedPatientPanel({ assessment }: SelectedPatientPanelProps) 
         className="mt-5 flex w-full items-center justify-center gap-2 rounded-[2px] bg-ink-950 px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-accent"
       >
         Open patient detail
-        <ArrowRight size={14} strokeWidth={2} />
+        <ArrowRight size={15} strokeWidth={2} />
       </Link>
     </Panel>
   )

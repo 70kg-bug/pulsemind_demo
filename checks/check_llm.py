@@ -53,7 +53,7 @@ print(f"target {patient} ({target['bed_code']}): {target['risk_level']} "
 print(f"stored contributors: "
       f"{[c['feature_name'] for c in target['contributors'][:3]]}")
 
-print("\ngenerating with the 7B (cold load is ~23 s before the first token)")
+print("\ngenerating with the 7B (cold load is ~40 s through the service before the first token)")
 started = time.perf_counter()
 status, out = call("POST", f"/patient/{patient}/explain", {})
 elapsed = time.perf_counter() - started

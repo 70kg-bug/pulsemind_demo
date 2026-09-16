@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 from pipeline.core.features import Infusion, PatientContext, Reading, ServingAssets
 
-TICK = timedelta(hours=1)      # matches the 60-minute grid the dwell was fitted on
+TICK = timedelta(hours=1)      # the 60-minute grid the dwell is denominated in
 ALL_PARAMS = ("spo2", "fio2", "flow_rate", "peep", "pip", "respiratory_rate_total",
               "minute_volume", "tidal_volume_observed", "etco2",
               "inspiratory_ratio", "expiratory_ratio")
