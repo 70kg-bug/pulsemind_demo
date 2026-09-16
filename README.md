@@ -36,7 +36,7 @@ to sit in a workspace:
 <workspace>/
   .venv/            Python 3.12, shared by both repositories
   bki/              the model repository -- REQUIRED, see step 1
-  models/           fitted artifacts, ~152 MB + 15 GB of 7B weights
+  models/           fitted artifacts, ~103 MB (the 15 GB of 7B weights were deleted 2026-09-16)
   pulsemind_demo/   this repository
 ```
 
@@ -84,7 +84,10 @@ operating point, `evidence_map.json` — are loaded at startup (`model_runtime.p
 redirectable with `PM_MODELS_ROOT`). **They are in neither repository and cannot be:** they
 are derived from MIMIC-IV under a PhysioNet DUA. Without them the service will not start.
 The 7B weights under `models/llm` are a further 15 GB and are needed only for generated
-explanations, not for scoring.
+explanations, not for scoring. ⚠️ **They were deleted on 2026-09-16**, so generation is dormant
+here; `core/generate.py` passes no `local_files_only`, so a warmup request starts a ~15 GB
+download instead of failing. Set `HF_HUB_OFFLINE=1` on the FastAPI process unless that is what
+you want.
 
 ### 4. JavaScript dependencies — three installs, two package managers
 
